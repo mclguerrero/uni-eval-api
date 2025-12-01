@@ -1,0 +1,51 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".", // Establece la raíz del proyecto
+    "paths": {
+      "@db": ["src/db"],
+      "@common/*": ["src/common/*"],
+      "@config/*": ["src/config/*"],
+      "@constants/*": ["src/constants/*"],
+
+      "@controllers/*": ["src/api/v1/controllers/*"],
+      "@jobs/*": ["src/api/v1/jobs/*"],
+      "@middlewares/*": ["src/api/v1/middlewares/*"],
+      "@models/*": ["src/api/v1/models/*"],
+      "@routes/*": ["src/api/v1/routes/*"],
+      "@services/*": ["src/api/v1/services/*"],
+      "@swagger/*": ["src/api/v1/swagger/*"],
+      "@templates/*": ["src/api/v1/templates/*"],
+      "@utils/*": ["src/api/v1/utils/*"],
+      "@validations/*": ["src/api/v1/validations/*"],
+      
+      "@aspectosServices/*": ["src/api/v1/services/evaluacion/aspectos/*"],
+      "@escalasServices/*": ["src/api/v1/services/evaluacion/escalas/*"],
+      "@configuracionesServices/*": ["src/api/v1/services/evaluacion/configuraciones/*"],
+
+      "@aspectosControllers/*": ["src/api/v1/controllers/evaluacion/aspectos/*"],
+      "@escalasControllers/*": ["src/api/v1/controllers/evaluacion/escalas/*"],
+      "@configuracionesControllers/*": ["src/api/v1/controllers/evaluacion/configuraciones/*"],
+
+      "@aspectosModels/*": ["src/api/v1/models/evaluacion/aspectos/*"],
+      "@escalasModels/*": ["src/api/v1/models/evaluacion/escalas/*"],
+      "@configuracionesModels/*": ["src/api/v1/models/evaluacion/configuraciones/*"],
+
+      "@aspectosSwagger/*": ["src/api/v1/swagger/evaluacion/aspectos/*"],
+      "@escalasSwagger/*": ["src/api/v1/swagger/evaluacion/escalas/*"],
+      "@configuracionesSwagger/*": ["src/api/v1/swagger/evaluacion/configuraciones/*"],
+
+      "@authController/*": ["src/api/v1/controllers/auth/*"],
+      "@estudianteController/*": ["src/api/v1/controllers/estudiante/*"],
+      "@evaluacionController/*": ["src/api/v1/controllers/evaluacion/*"],
+      "@reportesController/*": ["src/api/v1/controllers/reportes/*"],
+      "@vistaController/*": ["src/api/v1/controllers/vista/*"],
+
+      "@authModel/*": ["src/api/v1/models/auth/*"],
+      "@estudianteModel/*": ["src/api/v1/models/estudiante/*"],
+      "@evaluacionModel/*": ["src/api/v1/models/evaluacion/*"],
+      "@reportesModel/*": ["src/api/v1/models/reportes/*"],
+      "@vistaModel/*": ["src/api/v1/models/vista/*"]
+    }
+  },
+  "include": ["src/**/*", "scripts"]
+}
