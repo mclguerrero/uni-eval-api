@@ -1,5 +1,6 @@
 const { createCrudModule } = require('@common/crud/base');
 const { createRelationsModule } = require('@common/map/relations');
+const { paths: extraPaths, components: extraComponents, tags: extraTags } = require('@common/bulk-cfg/bulk.swagger');
 
 const escala = createCrudModule({
   name: 'escala',
@@ -20,6 +21,10 @@ const cfgE = createCrudModule({
   route: '/cfg/e',
   displayName: 'Configuración Escala',
   schemaName: 'ConfiguracionEscala',
+  disable: ['create'],
+  extraPaths,
+  extraComponents,
+  extraTags,
 });
 
 const catEmap = createRelationsModule({

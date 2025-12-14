@@ -34,9 +34,7 @@ tmp/
 temp/
 
 # Prisma auto-generated clients
-src/prisma/auth/
-src/prisma/local/
-src/prisma/user/
+src/prisma/**/
 !src/prisma/client.js
 
 # Swagger auto-generated files

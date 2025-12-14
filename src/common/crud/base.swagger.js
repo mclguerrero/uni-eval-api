@@ -91,6 +91,20 @@ function buildCrudDocs(nameOrOptions, schema) {
   // -------------------------------
   const paths = {};
 
+  // Helper para fusionar paths extra sin sobrescribir métodos existentes
+  const mergePaths = (base, extra) => {
+    if (!extra || typeof extra !== 'object') return base;
+    for (const [p, ops] of Object.entries(extra)) {
+      base[p] = base[p] || {};
+      if (ops && typeof ops === 'object') {
+        for (const [method, def] of Object.entries(ops)) {
+          base[p][method] = def; // Sobrescribe método específico si se redefine
+        }
+      }
+    }
+    return base;
+  };
+
   const rootPathOps = {};
   if (isEnabled('list')) {
     rootPathOps.get = {
@@ -230,54 +244,70 @@ function buildCrudDocs(nameOrOptions, schema) {
   }
   if (Object.keys(idPathOps).length) paths[`${route}/{id}`] = idPathOps;
 
+  // Permitir inyectar rutas/operaciones personalizadas desde options
+  const extraPaths = isOptions ? nameOrOptions.extraPaths : undefined;
+  mergePaths(paths, extraPaths);
+
   // Si no hay paths habilitados, devolver estructura mínima (sin rutas)
-  return {
-    tags: [
-      {
-        name: displayName,
-        description: `Gestión de ${displayName}`,
+  // Permitir inyectar tags y componentes extra
+  const extraTags = isOptions ? nameOrOptions.extraTags : undefined;
+  const extraComponents = isOptions ? nameOrOptions.extraComponents : undefined;
+
+  const baseTags = [
+    {
+      name: displayName,
+      description: `Gestión de ${displayName}`,
+    },
+  ];
+
+  const components = {
+    schemas: {
+      [Name]: entitySchema,
+
+      [`Create${Name}Input`]: {
+        type: "object",
+        required: createRequired,
+        properties: writableProps,
       },
-    ],
 
-    components: {
-      schemas: {
-        [Name]: entitySchema,
+      [`Update${Name}Input`]: {
+        type: "object",
+        properties: writableProps,
+      },
 
-        [`Create${Name}Input`]: {
-          type: "object",
-          required: createRequired,
-          properties: writableProps,
-        },
-
-        [`Update${Name}Input`]: {
-          type: "object",
-          properties: writableProps,
-        },
-
-        // Nuevo schema para paginación
-        [`${Name}Paginated`]: {
-          type: "object",
-          properties: {
-            data: {
-              type: "array",
-              items: { $ref: `#/components/schemas/${Name}` },
-            },
-            pagination: {
-              type: "object",
-              properties: {
-                page: { type: "integer", example: 1 },
-                limit: { type: "integer", example: 10 },
-                total: { type: "integer", example: 100 },
-                pages: { type: "integer", example: 10 },
-                hasNext: { type: "boolean", example: true },
-                hasPrev: { type: "boolean", example: false },
-              },
+      // Nuevo schema para paginación
+      [`${Name}Paginated`]: {
+        type: "object",
+        properties: {
+          data: {
+            type: "array",
+            items: { $ref: `#/components/schemas/${Name}` },
+          },
+          pagination: {
+            type: "object",
+            properties: {
+              page: { type: "integer", example: 1 },
+              limit: { type: "integer", example: 10 },
+              total: { type: "integer", example: 100 },
+              pages: { type: "integer", example: 10 },
+              hasNext: { type: "boolean", example: true },
+              hasPrev: { type: "boolean", example: false },
             },
           },
         },
       },
     },
+  };
 
+  if (extraComponents && typeof extraComponents === 'object') {
+    if (extraComponents.schemas && typeof extraComponents.schemas === 'object') {
+      components.schemas = { ...components.schemas, ...extraComponents.schemas };
+    }
+  }
+
+  return {
+    tags: Array.isArray(extraTags) ? [...baseTags, ...extraTags] : baseTags,
+    components,
     paths,
   };
 }

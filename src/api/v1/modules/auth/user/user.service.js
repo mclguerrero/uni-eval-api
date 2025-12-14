@@ -45,24 +45,66 @@ class UserService {
     const materiasRaw = await this.repository.findMateriasByDocente(ID_DOCENTE);
     if (!materiasRaw || materiasRaw.length === 0) throw new AppError(MESSAGES.GENERAL.NOT_FOUND.EMPTY_RESULT, 404);
 
-    // Transformamos info a formato docente → materias
+    // Helper para obtener el valor predominante (moda)
+    const getModa = (arr) => {
+      const freq = new Map();
+      for (const v of arr.filter(Boolean)) freq.set(v, (freq.get(v) || 0) + 1);
+      let moda = null; let max = -1;
+      for (const [k, c] of freq.entries()) { if (c > max) { max = c; moda = k; } }
+      return moda;
+    };
+
+    // Agrupar por materia (codigo)
+    const materiasMap = new Map();
+    for (const m of materiasRaw) {
+      const cod = m.COD_ASIGNATURA;
+      if (!materiasMap.has(cod)) {
+        materiasMap.set(cod, {
+          codigo: cod,
+          nombre: m.ASIGNATURA,
+          _programas: [],
+          _semestres: [],
+          grupos: new Map()
+        });
+      }
+      const entry = materiasMap.get(cod);
+      entry._programas.push(m.NOM_PROGRAMA);
+      entry._semestres.push(m.SEMESTRE);
+
+      // Agrupar por grupo dentro de la materia
+      const grupoKey = m.GRUPO || 'SIN_GRUPO';
+      if (!entry.grupos.has(grupoKey)) {
+        entry.grupos.set(grupoKey, {
+          nombre: grupoKey
+        });
+      }
+    }
+
+    // Construir salida final con programa/semestre predominantes y listas
+    const materias = [];
+    let idx = 1;
+    for (const mat of materiasMap.values()) {
+      const programaPred = getModa(mat._programas);
+      const semestrePred = getModa(mat._semestres);
+      const grupos = [];
+      for (const g of mat.grupos.values()) {
+        grupos.push({ nombre: g.nombre });
+      }
+      materias.push({
+        id: idx++,
+        codigo: mat.codigo,
+        nombre: mat.nombre,
+        programa: programaPred || null,
+        semestre: semestrePred || null,
+        grupos
+      });
+    }
+
     const first = materiasRaw[0];
     const docente = {
       documento: first.ID_DOCENTE,
       nombre: first.DOCENTE,
-      materias: materiasRaw.map((m, index) => ({
-        id: index + 1,
-        codigo: m.COD_ASIGNATURA,
-        nombre: m.ASIGNATURA,
-        estudiante: {
-          documento: m.ID_ESTUDIANTE,
-          nombre: [m.PRIMER_NOMBRE, m.SEGUNDO_NOMBRE, m.PRIMER_APELLIDO, m.SEGUNDO_APELLIDO]
-            .filter(Boolean).join(' ')
-        },
-        programa: m.NOM_PROGRAMA,
-        periodo: m.PERIODO,
-        grupo: m.GRUPO
-      }))
+      materias
     };
 
     return docente;

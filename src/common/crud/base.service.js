@@ -52,12 +52,14 @@ class BaseService {
 
   create(data) {
     const clean = this.sanitizeWriteData(data);
+    this.normalizeDateOnlyFields(clean);
     return this.repository.create(clean);
   }
 
   async update(id, data) {
     await this.getById(id);
     const clean = this.sanitizeWriteData(data);
+    this.normalizeDateOnlyFields(clean);
     return this.repository.update(id, clean);
   }
 
@@ -66,5 +68,18 @@ class BaseService {
     return this.repository.delete(id);
   }
 }
+
+// Añade métodos al prototipo sin romper referencia de clase
+BaseService.prototype.normalizeDateOnlyFields = function (obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/; // Formato YYYY-MM-DD
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string' && dateOnlyRegex.test(v)) {
+      // Convertir a objeto Date ISO completo para Prisma (manteniendo medianoche UTC)
+      obj[k] = new Date(v + 'T00:00:00.000Z');
+    }
+  }
+  return obj;
+};
 
 module.exports = BaseService;

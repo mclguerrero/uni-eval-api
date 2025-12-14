@@ -26,7 +26,7 @@ function createCrudModule(options, manualSchema = null, routerConfig = {}) {
     return { router, docs };
   }
 
-  const { name, route, displayName, schemaName, disable: optionsDisable } = options;
+  const { name, route, displayName, schemaName, disable: optionsDisable, extraPaths, extraComponents, extraTags } = options;
   if (!name) throw new Error("Debes especificar 'name' para leer el modelo Prisma.");
 
   // Generar esquema automático si no se pasa manual
@@ -46,7 +46,7 @@ function createCrudModule(options, manualSchema = null, routerConfig = {}) {
   ];
 
   const docs = buildCrudDocs(
-    { name, route: realRoute, displayName, schemaName, disable: combinedDisable },
+    { name, route: realRoute, displayName, schemaName, disable: combinedDisable, extraPaths, extraComponents, extraTags },
     finalSchema
   );
 
