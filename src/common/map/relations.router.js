@@ -1,12 +1,12 @@
 const express = require('express');
 const { createRelationsController } = require('./relations.controller');
 const { globalRoles: defaultRoles, globalMiddlewares: defaultMiddlewares } = require('@middlewares/auth.rol.global');
-const { requireRoles } = require('@middlewares/auth.middleware');
+const { requireAppRoles } = require('@middlewares/auth.middleware');
 
 function buildRoleMiddlewares(globalRoles = [], routeRoles = []) {
   const roles = [...globalRoles, ...routeRoles].filter(Boolean);
   if (!roles.length) return [];
-  return requireRoles(roles);
+  return requireAppRoles(roles);
 }
 
 function createRelationsRouter(config) {

@@ -1,7 +1,7 @@
 const { Router } = require('express');
 const controller = require('./eval-det.controller');
 const { globalRoles, globalMiddlewares } = require('@middlewares/auth.rol.global');
-const { requireRoles } = require('@middlewares/auth.middleware');
+const { requireAppRoles } = require('@middlewares/auth.middleware');
 
 const router = Router();
 
@@ -10,7 +10,7 @@ if (Array.isArray(globalMiddlewares) && globalMiddlewares.length) {
 }
 
 const roleMiddlewares = Array.isArray(globalRoles) && globalRoles.length
-	? requireRoles(globalRoles)
+	? requireAppRoles(globalRoles)
 	: [];
 
 // Bulk save respuestas y comentarios

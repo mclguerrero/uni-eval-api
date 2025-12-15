@@ -1,4 +1,4 @@
 module.exports = {
-  globalRoles: ['Admin'],
+  globalRoles: [1],
   globalMiddlewares: [require('@middlewares/auth.middleware').ensureAuth],
 };

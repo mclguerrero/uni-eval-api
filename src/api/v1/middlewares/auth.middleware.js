@@ -32,6 +32,9 @@ function ensureAuth(req, res, next) {
       roles = [],
       rolesAuth = [],
       rolesApp = [],
+      rolesIds = [],
+      rolesAuthIds = [],
+      rolesAppIds = [],
       status,
       user_statusid
     } = decoded;
@@ -42,6 +45,9 @@ function ensureAuth(req, res, next) {
       roles,
       rolesAuth,
       rolesApp,
+      rolesIds,
+      rolesAuthIds,
+      rolesAppIds,
       status: status ?? user_statusid,
       fromToken: true
     };
@@ -54,27 +60,36 @@ function ensureAuth(req, res, next) {
   }
 }
 
-function requireRoles(...required) {
-  const flatRequired = required.flat().filter(Boolean);
+function normalizeRequired(required) {
+  const ids = new Set();
+  const names = new Set();
+
+  required.flat().filter(Boolean).forEach(r => {
+    if (typeof r === 'number') ids.add(String(r));
+    else if (!Number.isNaN(Number(r)) && r !== '') ids.add(String(r));
+    else if (typeof r === 'string') names.add(r);
+  });
+
+  return { ids, names };
+}
+
+function requireAppRoles(...required) {
+  const { ids, names } = normalizeRequired(required);
 
   return [
     ensureAuth,
     (req, res, next) => {
       try {
-        const allUserRoles = new Set([
-          ...(req.user?.rolesAuth || []),
-          ...(req.user?.rolesApp || []),
-          ...(req.user?.roles || [])
-        ]);
+        const appIds = new Set((req.user?.rolesAppIds || []).map(String));
+        const appNames = new Set(req.user?.rolesApp || []);
 
-        if (allUserRoles.size === 0)
-          throw new AppError('Usuario sin roles asignados', 403);
+        if (appIds.size === 0 && appNames.size === 0)
+          throw new AppError('Usuario sin roles de aplicación asignados', 403);
 
-        const hasRole =
-          flatRequired.length > 0 &&
-          flatRequired.some(role => allUserRoles.has(role));
+        const matchId = ids.size === 0 ? false : Array.from(ids).some(id => appIds.has(id));
+        const matchName = names.size === 0 ? false : Array.from(names).some(name => appNames.has(name));
 
-        if (!hasRole)
+        if (!(matchId || matchName))
           throw new AppError('No tienes permiso para acceder a este recurso', 403);
 
         next();
@@ -85,4 +100,31 @@ function requireRoles(...required) {
   ];
 }
 
-module.exports = { ensureAuth, requireRoles };
+function requireAuthRoles(...required) {
+  const { ids, names } = normalizeRequired(required);
+
+  return [
+    ensureAuth,
+    (req, res, next) => {
+      try {
+        const authIds = new Set((req.user?.rolesAuthIds || []).map(String));
+        const authNames = new Set(req.user?.rolesAuth || []);
+
+        if (authIds.size === 0 && authNames.size === 0)
+          throw new AppError('Usuario sin roles de autenticación asignados', 403);
+
+        const matchId = ids.size === 0 ? false : Array.from(ids).some(id => authIds.has(id));
+        const matchName = names.size === 0 ? false : Array.from(names).some(name => authNames.has(name));
+
+        if (!(matchId || matchName))
+          throw new AppError('No tienes permiso para acceder a este recurso', 403);
+
+        next();
+      } catch (err) {
+        next(err);
+      }
+    }
+  ];
+}
+
+module.exports = { ensureAuth, requireAppRoles, requireAuthRoles };

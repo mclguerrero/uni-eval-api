@@ -6,10 +6,6 @@ const rol = createCrudModule({
   displayName: 'Rol',
   schemaName: 'Rol',
   disable: ['create'],
-},
-null,
-{
-  offOperations: ['create'],
 });
 
 const user_rol = createCrudModule({
@@ -19,7 +15,15 @@ const user_rol = createCrudModule({
   schemaName: 'UserRol',
 });
 
+const user_prog = createCrudModule({
+  name: 'user_prog',
+  route: '/user/prog',
+  displayName: 'User Prog',
+  schemaName: 'UserProg',
+});
+
 module.exports = {
   rol,
   user_rol,
+  user_prog,
 };

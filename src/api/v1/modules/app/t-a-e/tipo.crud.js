@@ -22,6 +22,13 @@ const cfgT = createCrudModule({
   schemaName: 'ConfiguracionTipo',
 });
 
+const cfg_t_rol = createCrudModule({
+  name: 'cfg_t_rol',
+  route: '/cfg/t/rol',
+  displayName: 'Configuración Tipo Rol',
+  schemaName: 'ConfiguracionTipoRol',
+});
+
 const catTmap = createRelationsModule({
   categoryModel: 'cat_t',
   itemModel: 'tipo',
@@ -41,5 +48,6 @@ module.exports = {
   tipo,
   catT,
   cfgT,
+  cfg_t_rol,
   catTmap,
 };

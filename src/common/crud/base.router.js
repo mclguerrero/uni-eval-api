@@ -1,10 +1,10 @@
 const { Router } = require('express');
 const { globalRoles: defaultRoles, globalMiddlewares: defaultMiddlewares } = require('@middlewares/auth.rol.global');
-const { requireRoles } = require('@middlewares/auth.middleware');
+const { requireAppRoles } = require('@middlewares/auth.middleware');
 
 function buildRoleMiddlewares(globalRoles = []) {
   if (!Array.isArray(globalRoles) || !globalRoles.length) return [];
-  return requireRoles(globalRoles);
+  return requireAppRoles(globalRoles);
 }
 
 function baseRouter(controller, routeName = '', config = {}) {

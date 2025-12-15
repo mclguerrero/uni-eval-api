@@ -50,11 +50,51 @@
  *         success:
  *           type: boolean
  *           example: true
- *         token:
+ *         data:
+ *           type: object
+ *           properties:
+ *             accessToken:
+ *               type: string
+ *               example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+ *             refreshToken:
+ *               type: string
+ *               example: 2f1c0c7c-...
+ *             jti:
+ *               type: string
+ *               example: 9e4c4b67-...
+ *             refreshExpiresAt:
+ *               type: string
+ *               format: date-time
+ *             user:
+ *               $ref: '#/components/schemas/DataloginUser'
+ *     RefreshInput:
+ *       type: object
+ *       required: [user_id, refresh_token]
+ *       properties:
+ *         user_id:
+ *           type: integer
+ *           example: 123
+ *         refresh_token:
  *           type: string
- *           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
- *         user:
- *           $ref: '#/components/schemas/DataloginUser'
+ *           example: 2f1c0c7c-...
+ *     RefreshResponse:
+ *       type: object
+ *       properties:
+ *         success:
+ *           type: boolean
+ *           example: true
+ *         data:
+ *           type: object
+ *           properties:
+ *             accessToken:
+ *               type: string
+ *             refreshToken:
+ *               type: string
+ *             jti:
+ *               type: string
+ *             refreshExpiresAt:
+ *               type: string
+ *               format: date-time
  */
 
 /**
@@ -165,4 +205,55 @@
  *         description: Credenciales incompletas
  *       401:
  *         description: Usuario o contraseña inválidos
+ */
+
+/**
+ * @swagger
+ * /auth/refresh:
+ *   post:
+ *     summary: Renovar access token usando refresh token
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/RefreshInput'
+ *     responses:
+ *       200:
+ *         description: Token renovado
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/RefreshResponse'
+ *       400:
+ *         description: Datos incompletos
+ *       401:
+ *         description: Refresh token inválido o expirado
+ */
+
+/**
+ * @swagger
+ * /auth/logout:
+ *   post:
+ *     summary: Cerrar sesión (revoca refresh token activo)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logout exitoso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     revoked:
+ *                       type: boolean
+ *                       example: true
  */
