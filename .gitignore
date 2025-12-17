@@ -39,9 +39,7 @@ src/prisma/**/
 
 # Swagger auto-generated files
 scripts/swagger.generated.json
-
-# Swagger auto-generated files
-scripts/swagger.generated.json
+scripts/generated/
 
 # SQL files
 sql/
