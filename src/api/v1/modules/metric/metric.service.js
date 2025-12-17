@@ -161,41 +161,32 @@ async function docenteCommentsAnalysis(query) {
 		// Analizar comentarios con IA
 		const analisisIA = await analyzeFromAggregated(dataMateria, query.docente);
 		
-        // 3. Guardar análisis en la tabla cmt_ai por aspecto
+        // 3. Guardar análisis en la tabla cmt_ai por aspecto usando cfg_t_id, docente y materia
         if (analisisIA.analisis) {
-            const evalWhere = {
-                id_configuracion: cfgId,
-                docente: String(query.docente),
-                codigo_materia: String(codigo_materia)
-            };
-			
-            // Obtener eval_ids para esta materia
-            const evals = await localPrisma.eval.findMany({
-                where: evalWhere,
-                select: { id: true }
-            });
-            const evalIds = evals.map(e => e.id);
-			
-            // Limpiar registros previos de estos evals
-            if (evalIds.length) {
-                await localPrisma.cmt_ai.deleteMany({ where: { eval_id: { in: evalIds } } });
-            }
-			
-            // Crear registros por aspecto para cada eval
-            const cmtAiRecords = [];
-            for (const evalRecord of evals) {
-                for (const aspecto of analisisIA.analisis.aspectos || []) {
-                    cmtAiRecords.push({
-                        eval_id: evalRecord.id,
-                        aspecto_id: aspecto.aspecto_id,
-                        conclusion: aspecto.conclusion || null,
-                        conclusion_gen: analisisIA.analisis.conclusion_general || null,
-                        fortaleza: analisisIA.analisis.fortalezas || [],
-                        debilidad: analisisIA.analisis.debilidades || []
-                    });
+            // Limpiar registros previos para este docente, materia y cfg_t
+            await localPrisma.cmt_ai.deleteMany({
+                where: {
+                    cfg_t_id: cfgId,
+                    docente: String(query.docente),
+                    codigo_materia: String(codigo_materia)
                 }
+            });
+
+            // Crear registros por aspecto
+            const cmtAiRecords = [];
+            for (const aspecto of analisisIA.analisis.aspectos || []) {
+                cmtAiRecords.push({
+                    cfg_t_id: cfgId,
+                    docente: String(query.docente),
+                    codigo_materia: String(codigo_materia),
+                    aspecto_id: aspecto.aspecto_id,
+                    conclusion: aspecto.conclusion || null,
+                    conclusion_gen: analisisIA.analisis.conclusion_general || null,
+                    fortaleza: analisisIA.analisis.fortalezas || [],
+                    debilidad: analisisIA.analisis.debilidades || []
+                });
             }
-			
+
             if (cmtAiRecords.length) {
                 await localPrisma.cmt_ai.createMany({ data: cmtAiRecords });
             }

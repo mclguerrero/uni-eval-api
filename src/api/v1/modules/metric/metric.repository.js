@@ -740,9 +740,13 @@ async function getDocenteCommentsWithMetrics({ cfg_t, docente, codigo_materia, s
 		select: { a_e_id: true, cmt: true }
 	});
 
-	// Cargar conclusiones/fortaleza/debilidad desde cmt_ai asociados a estos evals
+	// Cargar conclusiones/fortaleza/debilidad desde cmt_ai asociados a este docente, materia y cfg_t
 	const cmtAi = await localPrisma.cmt_ai.findMany({
-		where: { eval_id: { in: evalIds } },
+		where: {
+			cfg_t_id: cfgId,
+			docente: String(docente),
+			codigo_materia: codigo_materia ? String(codigo_materia) : undefined
+		},
 		select: { aspecto_id: true, conclusion: true, conclusion_gen: true, fortaleza: true, debilidad: true }
 	});
 	const conclusionByAspect = new Map();
@@ -852,7 +856,8 @@ async function getDocenteCommentsWithMetrics({ cfg_t, docente, codigo_materia, s
 		fortalezas: fortalezas.length ? fortalezas : null,
 		debilidades: debilidades.length ? debilidades : null,
 		conclusion_gen: conclusionGen,
-		aspectos
+		aspectos,
+		total_respuestas: totalRespuestas
 	};
 }
 
