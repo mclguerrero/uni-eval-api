@@ -4,6 +4,10 @@ async function summary(query) {
 	return repo.getSummary(query);
 }
 
+async function summaryByProgram(query) {
+	return repo.getSummaryByProgram(query);
+}
+
 async function usuarios(query, search, sort, pagination) {
 	return repo.getUsuarios(query, search, sort, pagination);
 }
@@ -22,6 +26,7 @@ async function docenteMateriaCompletion(query) {
 
 module.exports = {
 	summary,
+	summaryByProgram,
 	usuarios,
 	aspectos,
 	docentesAspectos,

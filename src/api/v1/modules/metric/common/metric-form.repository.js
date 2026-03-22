@@ -373,6 +373,126 @@ function createMetricFormRepository({ tipoFormId, allowMateria = false }) {
 		};
 	}
 
+	async function getSummaryByProgram(query) {
+		if (tipoFormId !== 2) {
+			throw new Error('summary by program is available only for encuesta (tipo_form_id=2)');
+		}
+
+		const programaSeleccionado = query?.programa ? String(query.programa) : null;
+		const summaryQuery = { ...query };
+		delete summaryQuery.programa;
+
+		const { evals, detalles, meta } = await getEvalBase(summaryQuery);
+		const withResponses = new Set(detalles.map((d) => d.eval_id));
+		const usuariosRealizados = new Set(
+			evals
+				.filter((e) => withResponses.has(e.id))
+				.map((e) => getUsuarioFromEval(e))
+				.filter(Boolean)
+				.map((u) => String(u))
+		);
+
+		const vistaRows = await getScopedVistaRows(
+			summaryQuery,
+			{},
+			{
+				ID_ESTUDIANTE: true,
+				ID_DOCENTE: true,
+				NOM_PROGRAMA: true,
+				SEMESTRE: true,
+				GRUPO: true
+			}
+		);
+
+		const semestresDelProgramaSeleccionado = new Set();
+		if (programaSeleccionado) {
+			for (const row of vistaRows) {
+				if (String(row?.NOM_PROGRAMA || 'SIN_PROGRAMA') === programaSeleccionado && row?.SEMESTRE) {
+					semestresDelProgramaSeleccionado.add(row.SEMESTRE);
+				}
+			}
+		}
+
+		const byPrograma = new Map();
+		for (const row of vistaRows) {
+			const nombrePrograma = row?.NOM_PROGRAMA || 'SIN_PROGRAMA';
+			if (!byPrograma.has(nombrePrograma)) {
+				byPrograma.set(nombrePrograma, {
+					nombre: nombrePrograma,
+					rows: [],
+					semestres: new Set(),
+					usuarios: new Set(),
+					byGrupo: new Map()
+				});
+			}
+
+			const programaEntry = byPrograma.get(nombrePrograma);
+			programaEntry.rows.push(row);
+			if (row?.SEMESTRE) programaEntry.semestres.add(row.SEMESTRE);
+
+			if (row?.ID_ESTUDIANTE != null) programaEntry.usuarios.add(String(row.ID_ESTUDIANTE));
+			if (row?.ID_DOCENTE != null) programaEntry.usuarios.add(String(row.ID_DOCENTE));
+
+			const grupoNombre = row?.GRUPO || 'SIN_GRUPO';
+			if (!programaEntry.byGrupo.has(grupoNombre)) {
+				programaEntry.byGrupo.set(grupoNombre, new Set());
+			}
+			if (row?.ID_ESTUDIANTE != null) programaEntry.byGrupo.get(grupoNombre).add(String(row.ID_ESTUDIANTE));
+			if (row?.ID_DOCENTE != null) programaEntry.byGrupo.get(grupoNombre).add(String(row.ID_DOCENTE));
+		}
+
+		const universoPermitido = meta?.universeUserIds instanceof Set ? meta.universeUserIds : new Set();
+		for (const uid of Array.from(usuariosRealizados)) {
+			if (!universoPermitido.has(uid)) usuariosRealizados.delete(uid);
+		}
+
+		const programas = [];
+		for (const [nombrePrograma, programaEntry] of byPrograma.entries()) {
+			if (programaSeleccionado && semestresDelProgramaSeleccionado.size > 0) {
+				const hayInterseccion = Array.from(programaEntry.semestres).some((s) => semestresDelProgramaSeleccionado.has(s));
+				if (!hayInterseccion) continue;
+			}
+
+			const usuariosPrograma = new Set(Array.from(programaEntry.usuarios).filter((uid) => universoPermitido.has(uid)));
+			const totalEncuestas = usuariosPrograma.size;
+			const totalRealizadas = Array.from(usuariosPrograma).filter((uid) => usuariosRealizados.has(uid)).length;
+			const totalPendientes = Math.max(totalEncuestas - totalRealizadas, 0);
+
+			const grupos = Array.from(programaEntry.byGrupo.entries()).map(([grupo, usuariosGrupoSet]) => {
+				const usuariosGrupo = Array.from(usuariosGrupoSet).filter((uid) => universoPermitido.has(uid));
+				const realizadasGrupo = usuariosGrupo.filter((uid) => usuariosRealizados.has(uid)).length;
+				return {
+					grupo,
+					metricas: {
+						total_encuestas: usuariosGrupo.length,
+						total_realizadas: realizadasGrupo,
+						total_pendientes: Math.max(usuariosGrupo.length - realizadasGrupo, 0)
+					}
+				};
+			});
+
+			grupos.sort((a, b) => String(a.grupo).localeCompare(String(b.grupo)));
+
+			const programaData = {
+				nombre: nombrePrograma,
+				metricas: {
+					total_encuestas: totalEncuestas,
+					total_realizadas: totalRealizadas,
+					total_pendientes: totalPendientes
+				},
+				grupos
+			};
+
+			if (programaSeleccionado && nombrePrograma === programaSeleccionado) {
+				programaData.selected = true;
+			}
+
+			programas.push(programaData);
+		}
+
+		return { programas };
+	}
+
 	async function getUsuarios(query, search, sort, pagination) {
 		const { evals, detalles, scoreMap } = await getEvalBase(query);
 		const byUsuario = new Map();
@@ -1019,6 +1139,7 @@ function createMetricFormRepository({ tipoFormId, allowMateria = false }) {
 
 	return {
 		getSummary,
+		getSummaryByProgram,
 		getRanking,
 		getUsuarios,
 		getAspectos,

@@ -73,6 +73,101 @@
 
 /**
  * @swagger
+ * /metric/encuesta/summary/programas:
+ *   get:
+ *     summary: Resumen de encuestas por programa y grupo (tipo_form encuesta = 2)
+ *     description: Retorna métricas de total_encuestas, total_realizadas y total_pendientes por programa, con desglose por grupo.
+ *     tags: [Metric]
+ *     parameters:
+ *       - in: query
+ *         name: cfg_t
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID de la configuración de encuesta
+ *       - in: query
+ *         name: sede
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por sede
+ *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por periodo
+ *       - in: query
+ *         name: programa
+ *         schema:
+ *           type: string
+ *         description: Programa seleccionado (marca selected=true y aplica misma lógica de semestres usada en summary/programas)
+ *       - in: query
+ *         name: semestre
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por semestre
+ *       - in: query
+ *         name: grupo
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por grupo
+ *       - in: query
+ *         name: rol_mix
+ *         schema:
+ *           type: array
+ *           items:
+ *             type: integer
+ *         style: form
+ *         explode: true
+ *         description: Filtro dinámico por roles mixtos (multi-selección). Ejemplo rol_mix=1&rol_mix=2
+ *     responses:
+ *       200:
+ *         description: Resumen por programa
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 programas:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       nombre:
+ *                         type: string
+ *                       selected:
+ *                         type: boolean
+ *                         description: Presente cuando coincide con el programa enviado por query
+ *                       metricas:
+ *                         type: object
+ *                         properties:
+ *                           total_encuestas:
+ *                             type: integer
+ *                           total_realizadas:
+ *                             type: integer
+ *                           total_pendientes:
+ *                             type: integer
+ *                       grupos:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             grupo:
+ *                               type: string
+ *                             metricas:
+ *                               type: object
+ *                               properties:
+ *                                 total_encuestas:
+ *                                   type: integer
+ *                                 total_realizadas:
+ *                                   type: integer
+ *                                 total_pendientes:
+ *                                   type: integer
+ *       400:
+ *         description: Parámetros requeridos faltantes o inválidos
+ */
+
+/**
+ * @swagger
  * /metric/encuesta/usuarios:
  *   get:
  *     summary: Métricas por usuario (paginated, searchable, sortable)

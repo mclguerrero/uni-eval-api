@@ -11,6 +11,15 @@ async function summary(req, res, next) {
 	}
 }
 
+async function summaryByProgram(req, res, next) {
+	try {
+		const data = await service.summaryByProgram(req.query);
+		successResponse(res, { code: 200, message: messages.DASHBOARD.SUCCESS.FETCH_STATS, data });
+	} catch (err) {
+		next(err);
+	}
+}
+
 async function usuarios(req, res, next) {
 	try {
 		const data = await service.usuarios(req.query, req.search, req.sort, req.pagination);
@@ -53,6 +62,7 @@ async function docenteMateriaCompletion(req, res, next) {
 
 module.exports = {
 	summary,
+	summaryByProgram,
 	usuarios,
 	aspectos,
 	docentesAspectos,

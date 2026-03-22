@@ -7,6 +7,7 @@ const sort = require('@middlewares/http/sort');
 const router = express.Router();
 
 router.get('/summary', ctrl.summary);
+router.get('/summary/programas', ctrl.summaryByProgram);
 router.get(
 	'/usuarios',
 	pagination({ defaultPage: 1, defaultLimit: 10, maxLimit: 100 }),

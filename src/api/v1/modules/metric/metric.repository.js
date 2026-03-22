@@ -988,6 +988,17 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 
+	const cfgRelation = await localPrisma.cfg_t_rel.findFirst({
+		where: {
+			OR: [
+				{ cfg_eval_id: cfgId },
+				{ cfg_autoeval_id: cfgId }
+			]
+		},
+		select: { id: true }
+	});
+	const hasCfgPair = Boolean(cfgRelation);
+
 	// Helper function to compute metrics for a single docente
 	const computeMetricsForDocente = async (docenteId) => {
 		// Filter evals for this docente
@@ -1195,12 +1206,12 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 			desviacion = Math.sqrt(variance);
 		}
 
-		// Get autoevaluacion metrics
-		const autoevaluacion = await getAutoevaluacionMetrics(docente);
+		// Get autoevaluacion metrics only when cfg_t has related pair
+		const autoevaluacion = hasCfgPair ? await getAutoevaluacionMetrics(docente) : null;
 
 		// Build response with both evaluacion and autoevaluacion
-		const PESO_ESTUDIANTES = 0.8;
-		const PESO_AUTOEVALUACION = 0.2;
+		const PESO_ESTUDIANTES = hasCfgPair ? 0.8 : 1;
+		const PESO_AUTOEVALUACION = hasCfgPair ? 0.2 : 0;
 		const ESCALA_MAXIMA = 5;
 
 		const evaluacionEstudiantes = {
@@ -1221,7 +1232,9 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 
 		if (codigo_materia) result.codigo_materia = String(codigo_materia);
 
-		const autoevaluacionBase = autoevaluacion || buildZeroAutoevaluacionFromAspectos(aspectos);
+		const autoevaluacionBase = hasCfgPair
+			? (autoevaluacion || buildZeroAutoevaluacionFromAspectos(aspectos))
+			: { suma_total: 0, total_respuestas: 0, promedio_general: 0, aspectos: [] };
 		const autoevaluacionDocente = {
 			peso: PESO_AUTOEVALUACION,
 			suma_total: autoevaluacionBase.suma_total,
@@ -1233,7 +1246,6 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 
 		result.autoevaluacion_docente = autoevaluacionDocente;
 
-		// Calculate final weighted score
 		const ponderadoEstudiantes = evaluacionEstudiantes.ponderado;
 		const ponderadoAutoevaluacion = autoevaluacionDocente.ponderado;
 
@@ -1322,11 +1334,11 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 		promedio: asp.total_respuestas ? asp.suma / asp.total_respuestas : null
 	}));
 
-	const PESO_ESTUDIANTES = 0.8;
-	const PESO_AUTOEVALUACION = 0.2;
+	const PESO_ESTUDIANTES = hasCfgPair ? 0.8 : 1;
+	const PESO_AUTOEVALUACION = hasCfgPair ? 0.2 : 0;
 	const ESCALA_MAXIMA = 5;
 
-	const autoevaluacion = await getAutoevaluacionMetricsForDocentes(docentesList);
+	const autoevaluacion = hasCfgPair ? await getAutoevaluacionMetricsForDocentes(docentesList) : null;
 	const evaluacionEstudiantes = {
 		peso: PESO_ESTUDIANTES,
 		suma_total: agregadoSumaTotal,
@@ -1343,7 +1355,9 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 		evaluacion_estudiantes: evaluacionEstudiantes
 	};
 
-	const autoevaluacionBase = autoevaluacion || buildZeroAutoevaluacionFromAspectos(aspectosFinales);
+	const autoevaluacionBase = hasCfgPair
+		? (autoevaluacion || buildZeroAutoevaluacionFromAspectos(aspectosFinales))
+		: { suma_total: 0, total_respuestas: 0, promedio_general: 0, aspectos: [] };
 	const autoevaluacionDocente = {
 		peso: PESO_AUTOEVALUACION,
 		suma_total: autoevaluacionBase.suma_total,
