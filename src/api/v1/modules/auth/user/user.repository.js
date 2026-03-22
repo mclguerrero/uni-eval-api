@@ -18,6 +18,17 @@ class UserRepository {
       orderBy: { ID_PERIODO: 'asc' }
     });
   }
+
+  findMateriasByCodigos(codigos) {
+    if (!codigos || codigos.length === 0) return [];
+
+    return this.model.findMany({
+      where: {
+        COD_ASIGNATURA: { in: codigos }
+      },
+      orderBy: { ID_PERIODO: 'asc' }
+    });
+  }
 }
 
 module.exports = UserRepository;

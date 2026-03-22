@@ -1,6 +1,23 @@
 const AppError = require('@utils/AppError');
 const MESSAGES = require('@constants/messages');
 
+const getModa = (arr) => {
+  const freq = new Map();
+  for (const value of arr.filter(Boolean)) {
+    freq.set(value, (freq.get(value) || 0) + 1);
+  }
+
+  let moda = null;
+  let max = -1;
+  for (const [key, count] of freq.entries()) {
+    if (count > max) {
+      max = count;
+      moda = key;
+    }
+  }
+  return moda;
+};
+
 class UserService {
   constructor(repository) {
     this.repository = repository;
@@ -12,28 +29,73 @@ class UserService {
     const materiasRaw = await this.repository.findMateriasByEstudiante(ID_ESTUDIANTE);
     if (!materiasRaw || materiasRaw.length === 0) throw new AppError(MESSAGES.GENERAL.NOT_FOUND.EMPTY_RESULT, 404);
 
+    const codigosMateria = [...new Set(materiasRaw.map(m => m.COD_ASIGNATURA).filter(Boolean))];
+    const materiasAllRaw = await this.repository.findMateriasByCodigos(codigosMateria);
+
+    const materiasGlobalStats = new Map();
+    for (const m of materiasAllRaw) {
+      const cod = m.COD_ASIGNATURA;
+      if (!materiasGlobalStats.has(cod)) {
+        materiasGlobalStats.set(cod, {
+          _programas: [],
+          _semestres: []
+        });
+      }
+      const stats = materiasGlobalStats.get(cod);
+      stats._programas.push(m.NOM_PROGRAMA);
+      stats._semestres.push(m.SEMESTRE);
+    }
+
+    // Agrupar por materia para obtener valores predominantes por asignatura
+    const materiasMap = new Map();
+    for (const m of materiasRaw) {
+      const cod = m.COD_ASIGNATURA;
+      if (!materiasMap.has(cod)) {
+        materiasMap.set(cod, {
+          codigo: cod,
+          nombre: m.ASIGNATURA,
+          _docentes: []
+        });
+      }
+
+      const entry = materiasMap.get(cod);
+      entry._docentes.push({
+        documento: m.ID_DOCENTE,
+        nombre: m.DOCENTE
+      });
+    }
+
+    const materias = [];
+    let idx = 1;
+    for (const mat of materiasMap.values()) {
+      const stats = materiasGlobalStats.get(mat.codigo);
+      const programaPred = getModa(stats?._programas || []);
+      const semestrePred = getModa(stats?._semestres || []);
+      materias.push({
+        id: idx++,
+        codigo: mat.codigo,
+        nombre: mat.nombre,
+        programa: programaPred || null,
+        semestre: semestrePred || null,
+        docente: mat._docentes[0] || null
+      });
+    }
+
     // Transformamos la info a formato anidado
     const first = materiasRaw[0];
+    const programaPredominante = getModa(materiasRaw.map(m => m.NOM_PROGRAMA));
+    const semestrePredominante = getModa(materiasRaw.map(m => m.SEMESTRE));
     const estudiante = {
       sede: first.NOMBRE_SEDE,
       facultad: first.NOM_FACULTAD,
       nombre_completo: [first.PRIMER_NOMBRE, first.SEGUNDO_NOMBRE, first.PRIMER_APELLIDO, first.SEGUNDO_APELLIDO]
         .filter(Boolean).join(' '),
       documento: first.ID_ESTUDIANTE,
-      programa: first.NOM_PROGRAMA,
+      programa: programaPredominante || null,
       periodo: first.PERIODO,
-      semestre: first.SEMESTRE,
-      n_semestre: first.SEMESTRE?.match(/\d+/)?.[0] || null,
+      semestre: semestrePredominante || null,
       grupo: first.GRUPO,
-      materias: materiasRaw.map((m, index) => ({
-        id: index + 1,
-        codigo: m.COD_ASIGNATURA,
-        nombre: m.ASIGNATURA,
-        docente: {
-          documento: m.ID_DOCENTE,
-          nombre: m.DOCENTE
-        }
-      }))
+      materias
     };
 
     return estudiante;
@@ -45,14 +107,22 @@ class UserService {
     const materiasRaw = await this.repository.findMateriasByDocente(ID_DOCENTE);
     if (!materiasRaw || materiasRaw.length === 0) throw new AppError(MESSAGES.GENERAL.NOT_FOUND.EMPTY_RESULT, 404);
 
-    // Helper para obtener el valor predominante (moda)
-    const getModa = (arr) => {
-      const freq = new Map();
-      for (const v of arr.filter(Boolean)) freq.set(v, (freq.get(v) || 0) + 1);
-      let moda = null; let max = -1;
-      for (const [k, c] of freq.entries()) { if (c > max) { max = c; moda = k; } }
-      return moda;
-    };
+    const codigosMateria = [...new Set(materiasRaw.map(m => m.COD_ASIGNATURA).filter(Boolean))];
+    const materiasAllRaw = await this.repository.findMateriasByCodigos(codigosMateria);
+
+    const materiasGlobalStats = new Map();
+    for (const m of materiasAllRaw) {
+      const cod = m.COD_ASIGNATURA;
+      if (!materiasGlobalStats.has(cod)) {
+        materiasGlobalStats.set(cod, {
+          _programas: [],
+          _semestres: []
+        });
+      }
+      const stats = materiasGlobalStats.get(cod);
+      stats._programas.push(m.NOM_PROGRAMA);
+      stats._semestres.push(m.SEMESTRE);
+    }
 
     // Agrupar por materia (codigo)
     const materiasMap = new Map();
@@ -62,14 +132,10 @@ class UserService {
         materiasMap.set(cod, {
           codigo: cod,
           nombre: m.ASIGNATURA,
-          _programas: [],
-          _semestres: [],
           grupos: new Map()
         });
       }
       const entry = materiasMap.get(cod);
-      entry._programas.push(m.NOM_PROGRAMA);
-      entry._semestres.push(m.SEMESTRE);
 
       // Agrupar por grupo dentro de la materia
       const grupoKey = m.GRUPO || 'SIN_GRUPO';
@@ -84,8 +150,9 @@ class UserService {
     const materias = [];
     let idx = 1;
     for (const mat of materiasMap.values()) {
-      const programaPred = getModa(mat._programas);
-      const semestrePred = getModa(mat._semestres);
+      const stats = materiasGlobalStats.get(mat.codigo);
+      const programaPred = getModa(stats?._programas || []);
+      const semestrePred = getModa(stats?._semestres || []);
       const grupos = [];
       for (const g of mat.grupos.values()) {
         grupos.push({ nombre: g.nombre });
@@ -104,6 +171,8 @@ class UserService {
     const docente = {
       documento: first.ID_DOCENTE,
       nombre: first.DOCENTE,
+      periodo: first.PERIODO,
+      sede: first.NOMBRE_SEDE,
       materias
     };
 

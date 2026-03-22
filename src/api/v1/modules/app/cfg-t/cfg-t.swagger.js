@@ -67,11 +67,40 @@
  *             properties:
  *               rol_mix_id:
  *                 type: integer
+ *               nombre:
+ *                 type: string
+ *                 nullable: true
  *               rol_origen_id:
  *                 type: integer
  *               origen:
  *                 type: string
  *                 enum: [APP, AUTH]
+ *         scopes:
+ *           type: array
+ *           description: Scopes asociados a la configuración
+ *           items:
+ *             $ref: '#/components/schemas/ScopeItem'
+ *         cfg_t_rel:
+ *           allOf:
+ *             - $ref: '#/components/schemas/CfgTRel'
+ *           nullable: true
+
+ *     CfgTRel:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         cfg_eval_id:
+ *           type: integer
+ *         cfg_autoeval_id:
+ *           type: integer
+ *         pareja_cfg_t_id:
+ *           type: integer
+ *           description: ID de la cfg_t pareja en la relación
+ *         rol_en_rel:
+ *           type: string
+ *           enum: [EVAL, AUTOEVAL]
+ *           description: Rol de la configuración actual dentro de cfg_t_rel
  *
  *     CfgTListResponse:
  *       type: object
@@ -252,7 +281,7 @@
  *       properties:
  *         id:
  *           type: integer
- *           description: ID del registro en cfg_t_rol
+ *           description: ID de un registro scope asociado al rol
  *         rol_mix_id:
  *           type: integer
  *           nullable: true
@@ -319,6 +348,202 @@
  *           type: array
  *           items:
  *             $ref: '#/components/schemas/EvalByUserItem'
+ *
+ *     ScopeItem:
+ *       type: object
+ *       properties:
+ *         id:
+ *           type: integer
+ *         cfg_t_id:
+ *           type: integer
+ *         sede_id:
+ *           type: integer
+ *           nullable: true
+ *         sede_nombre:
+ *           type: string
+ *           nullable: true
+ *           example: "Bogotá"
+ *         periodo_id:
+ *           type: integer
+ *         periodo_nombre:
+ *           type: string
+ *           nullable: true
+ *           example: "2024-1"
+ *         programa_id:
+ *           type: integer
+ *           nullable: true
+ *         programa_nombre:
+ *           type: string
+ *           nullable: true
+ *           example: "Ingeniería de Sistemas"
+ *         semestre_id:
+ *           type: integer
+ *           nullable: true
+ *         semestre_nombre:
+ *           type: string
+ *           nullable: true
+ *           example: "III"
+ *         grupo_id:
+ *           type: integer
+ *           nullable: true
+ *         grupo_nombre:
+ *           type: string
+ *           nullable: true
+ *           example: "A"
+ *
+ *     ScopeResponse:
+ *       type: object
+ *       properties:
+ *         message:
+ *           type: string
+ *           example: Scopes obtenidos correctamente
+ *         data:
+ *           type: array
+ *           items:
+ *             $ref: '#/components/schemas/ScopeItem'
+ *
+ *     CfgTFullRequest:
+ *       type: object
+ *       properties:
+ *         tipo_id:
+ *           type: integer
+ *         tipo_form_id:
+ *           type: integer
+ *           description: Solo tipo_form_id=1 permite genera_autoeval=true
+ *         genera_autoeval:
+ *           type: boolean
+ *         autoeval_tipo_form_id:
+ *           type: integer
+ *           nullable: true
+ *           description: Requerido cuando genera_autoeval=true (3 o 4)
+ *         autoeval_rol_mix_ids:
+ *           type: array
+ *           minItems: 1
+ *           nullable: true
+ *           description: IDs de los roles autorizados para la autoevaluación. Requerido cuando genera_autoeval=true
+ *           items:
+ *             type: integer
+ *         fecha_inicio:
+ *           type: string
+ *           format: date
+ *         fecha_fin:
+ *           type: string
+ *           format: date
+ *         es_cmt_gen:
+ *           type: boolean
+ *         es_cmt_gen_oblig:
+ *           type: boolean
+ *         es_activo:
+ *           type: boolean
+ *         scopes:
+ *           type: array
+ *           minItems: 1
+ *           items:
+ *             type: object
+ *             properties:
+ *               sede_id:
+ *                 type: integer
+ *                 nullable: true
+ *               periodo_id:
+ *                 type: integer
+ *               programa_id:
+ *                 type: integer
+ *                 nullable: true
+ *               semestre_id:
+ *                 type: integer
+ *                 nullable: true
+ *               grupo_id:
+ *                 type: integer
+ *                 nullable: true
+ *         roles:
+ *           type: array
+ *           minItems: 1
+ *           description: Roles requeridos (relación M:M en cfg_t_rol)
+ *           items:
+ *             type: object
+ *             properties:
+ *               rol_mix_id:
+ *                 type: integer
+ *         rol_mix_ids:
+ *           type: array
+ *           description: Atajo compatible para enviar solo IDs de rol
+ *           items:
+ *             type: integer
+ *
+ *     CfgTFullResponse:
+ *       type: object
+ *       properties:
+ *         message:
+ *           type: string
+ *           example: Configuración creada correctamente
+ *         data:
+ *           type: object
+ *           properties:
+ *             cfg_eval:
+ *               $ref: '#/components/schemas/CfgT'
+ *             cfg_autoeval:
+ *               allOf:
+ *                 - $ref: '#/components/schemas/CfgT'
+ *               nullable: true
+ *             relation:
+ *               type: object
+ *               nullable: true
+ *               properties:
+ *                 id:
+ *                   type: integer
+ *                 cfg_eval_id:
+ *                   type: integer
+ *                 cfg_autoeval_id:
+ *                   type: integer
+ *             scope_count:
+ *               type: integer
+ */
+
+/**
+ * @swagger
+ * /cfg/t/full:
+ *   post:
+ *     summary: Crea configuración completa de cfg_t con scope, roles M:M y autoevaluación relacionada opcional
+ *     tags: [Configuración Tipo]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/CfgTFullRequest'
+ *           example:
+ *             tipo_id: 1
+ *             tipo_form_id: 1
+ *             genera_autoeval: true
+ *             autoeval_tipo_form_id: 3
+ *             autoeval_rol_mix_ids: [5, 6]
+ *             fecha_inicio: "2026-03-20"
+ *             fecha_fin: "2026-03-25"
+ *             es_cmt_gen: true
+ *             es_cmt_gen_oblig: false
+ *             es_activo: true
+ *             scopes:
+ *               - sede_id: null
+ *                 periodo_id: 1
+ *                 programa_id: 1
+ *                 semestre_id: 1
+ *                 grupo_id: 1
+ *             roles:
+ *               - rol_mix_id: 1
+ *               - rol_mix_id: 2
+ *     responses:
+ *       200:
+ *         description: Configuración creada correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/CfgTFullResponse'
+ *       400:
+ *         description: Validación de negocio o payload inválido
+ *       401:
+ *         description: No autenticado
+ *       403:
+ *         description: Sin autorización
  */
 
 /**
@@ -505,6 +730,36 @@
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/EvalByUserResponse'
+ *       400:
+ *         description: Solicitud inválida
+ *       401:
+ *         description: No autenticado
+ *       403:
+ *         description: Sin autorización
+ *       404:
+ *         description: No encontrado
+ */
+
+/**
+ * @swagger
+ * /cfg/t/{id}/scope:
+ *   get:
+ *     summary: Obtiene el scope de una configuración con nombres de sede, período, programa, semestre y grupo
+ *     tags: [Configuración Tipo]
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID de cfg_t
+ *     responses:
+ *       200:
+ *         description: Listado de scopes con información completa de todas las relaciones
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/ScopeResponse'
  *       400:
  *         description: Solicitud inválida
  *       401:

@@ -5,6 +5,18 @@ const CfgTRepository = require('./cfg-t.repository');
 const service = new CfgTService(new CfgTRepository());
 
 class CfgTController {
+	createCfgTFull = async (req, res, next) => {
+		try {
+			const data = await service.createCfgTFull(req.body);
+			return successResponse(res, {
+				message: 'Configuración creada correctamente',
+				data,
+			});
+		} catch (err) {
+			next(err);
+		}
+	};
+
 	getCfgTList = async (req, res, next) => {
 		try {
 			const data = await service.getCfgTList(req.user, req.search, req.sort);
@@ -57,6 +69,16 @@ class CfgTController {
 			const cfgTId = Number(req.params.id);
 			const data = await service.getEvaluacionesByCfgT(cfgTId, req.user);
 			return successResponse(res, { message: 'Evaluaciones obtenidas correctamente', data });
+		} catch (err) {
+			next(err);
+		}
+	};
+
+	getScopesByCfgT = async (req, res, next) => {
+		try {
+			const cfgTId = Number(req.params.id);
+			const data = await service.getScopesByCfgT(cfgTId);
+			return successResponse(res, { message: 'Scopes obtenidos correctamente', data });
 		} catch (err) {
 			next(err);
 		}

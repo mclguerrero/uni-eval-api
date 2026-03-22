@@ -1,4 +1,4 @@
-const { userPrisma } = require('@config/prisma');
+const { userPrisma, prisma } = require('@config/prisma');
 const { Prisma } = require('@prisma/client');
 
 class FilterRepository {
@@ -96,7 +96,20 @@ class FilterRepository {
       FROM vista_academica_insitus 
       WHERE ${conditions.join(' AND ')}
         AND SEMESTRE IS NOT NULL
-      ORDER BY SEMESTRE
+      ORDER BY CASE UPPER(TRIM(SEMESTRE))
+        WHEN 'PRIMER SEMESTRE' THEN 1
+        WHEN 'SEGUNDO SEMESTRE' THEN 2
+        WHEN 'TERCER SEMESTRE' THEN 3
+        WHEN 'CUARTO SEMESTRE' THEN 4
+        WHEN 'QUINTO SEMESTRE' THEN 5
+        WHEN 'SEXTO SEMESTRE' THEN 6
+        WHEN 'SEPTIMO SEMESTRE' THEN 7
+        WHEN 'OCTAVO SEMESTRE' THEN 8
+        WHEN 'NOVENO SEMESTRE' THEN 9
+        WHEN 'DECIMO SEMESTRE' THEN 10
+        ELSE 999
+      END,
+      SEMESTRE
     `;
 
     const result = await userPrisma.$queryRawUnsafe(query, ...params);
@@ -144,6 +157,47 @@ class FilterRepository {
       programas,
       semestres,
       grupos,
+    };
+  }
+
+  /**
+   * Obtiene todos los filtros desde la base local
+   */
+  async getAllFiltersLocal() {
+    const [sedes, periodos, programas, semestres, grupos, roles] = await Promise.all([
+      prisma.sede.findMany({
+        select: { id: true, nombre: true },
+        orderBy: { nombre: 'asc' },
+      }),
+      prisma.peri.findMany({
+        select: { id: true, nombre: true },
+        orderBy: { nombre: 'desc' },
+      }),
+      prisma.prog.findMany({
+        select: { id: true, nombre: true },
+        orderBy: { nombre: 'asc' },
+      }),
+      prisma.smstre.findMany({
+        select: { id: true, nombre: true },
+        orderBy: { id: 'asc' },
+      }),
+      prisma.grp.findMany({
+        select: { id: true, nombre: true },
+        orderBy: { nombre: 'asc' },
+      }),
+      prisma.rol_mix.findMany({
+        select: { id: true, nombre: true, origen: true, rol_origen_id: true },
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+
+    return {
+      sedes,
+      periodos,
+      programas,
+      semestres,
+      grupos,
+      roles,
     };
   }
 }

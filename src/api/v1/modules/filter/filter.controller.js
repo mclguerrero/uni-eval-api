@@ -18,6 +18,18 @@ class FilterController {
     }
   };
 
+  getAllFiltersLocal = async (req, res, next) => {
+    try {
+      const data = await this.service.getAllFiltersLocal();
+      return successResponse(res, {
+        message: 'Filtros locales obtenidos correctamente',
+        data
+      });
+    } catch (err) {
+      next(err);
+    }
+  };
+
   getSedes = async (req, res, next) => {
     try {
       const data = await this.service.getSedes();

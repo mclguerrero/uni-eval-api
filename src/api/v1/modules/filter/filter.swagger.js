@@ -2,7 +2,7 @@
  * @swagger
  * tags:
  *   name: Filter
- *   description: Endpoints para obtener valores únicos de filtros desde vista_academica_insitus
+ *   description: Endpoints para obtener valores de filtros desde base local y vista académica online
  */
 
 /**
@@ -10,7 +10,112 @@
  * /filter:
  *   get:
  *     tags: [Filter]
- *     summary: Obtiene todos los valores únicos para filtros
+ *     summary: Obtiene todos los filtros desde base local
+ *     description: Retorna sedes, periodos, programas, semestres, grupos y roles desde tablas locales (sede, peri, prog, smstre, grp, rol_mix)
+ *     responses:
+ *       200:
+ *         description: Filtros locales obtenidos correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Filtros locales obtenidos correctamente
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     sedes:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           nombre:
+ *                             type: string
+ *                       example: [ { "id": 1, "nombre": "SEDE A" }, { "id": 2, "nombre": "SEDE B" } ]
+ *                     periodos:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           nombre:
+ *                             type: string
+ *                       example: [ { "id": 1, "nombre": "2024-1" }, { "id": 2, "nombre": "2024-2" } ]
+ *                     programas:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           nombre:
+ *                             type: string
+ *                       example: [ { "id": 1, "nombre": "Ingeniería de Sistemas" }, { "id": 2, "nombre": "Medicina" } ]
+ *                     semestres:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           nombre:
+ *                             type: string
+ *                       example: [ { "id": 1, "nombre": "1" }, { "id": 2, "nombre": "2" } ]
+ *                     grupos:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           nombre:
+ *                             type: string
+ *                       example: [ { "id": 1, "nombre": "A" }, { "id": 2, "nombre": "B" } ]
+ *                     roles:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: integer
+ *                           nombre:
+ *                             type: string
+ *                           origen:
+ *                             type: string
+ *                             enum: [APP, AUTH]
+ *                           rol_origen_id:
+ *                             type: integer
+ *                             nullable: true
+ *                       example: [ { "id": 1, "nombre": "Admin", "origen": "APP", "rol_origen_id": 1 }, { "id": 3, "nombre": "Estudiante", "origen": "AUTH", "rol_origen_id": 1 } ]
+ *       500:
+ *         description: Error interno del servidor
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Error al obtener filtros
+ */
+
+/**
+ * @swagger
+ * /filter/online:
+ *   get:
+ *     tags: [Filter]
+ *     summary: Obtiene todos los valores únicos para filtros desde vista académica
  *     description: Retorna sede, periodo, programa, semestre y grupo únicos desde vista_academica_insitus
  *     responses:
  *       200:
@@ -54,19 +159,6 @@
  *                       items:
  *                         type: string
  *                       example: [ "A", "B", "C", "D" ]
- *       500:
- *         description: Error interno del servidor
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: Error al obtener filtros
  */
 
 /**

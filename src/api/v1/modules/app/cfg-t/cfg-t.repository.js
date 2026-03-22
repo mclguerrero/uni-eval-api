@@ -20,6 +20,97 @@ function getMostFrequent(values) {
 }
 
 class CfgTRepository {
+	async createCfgTFull({ cfg_t, scopes, role_mix_ids, autoeval_role_mix_ids }) {
+		return prisma.$transaction(async tx => {
+			const cfgEval = await tx.cfg_t.create({ data: cfg_t });
+
+			await tx.cfg_t_scope.createMany({
+				data: scopes.map(scope => ({
+					cfg_t_id: cfgEval.id,
+					sede_id: scope.sede_id,
+					periodo_id: scope.periodo_id,
+					programa_id: scope.programa_id,
+					semestre_id: scope.semestre_id,
+					grupo_id: scope.grupo_id,
+				})),
+			});
+
+			await tx.cfg_t_rol.createMany({
+				data: role_mix_ids.map(rolMixId => ({
+					cfg_t_id: cfgEval.id,
+					rol_mix_id: rolMixId,
+				})),
+				skipDuplicates: true,
+			});
+
+			const mustCreateAutoeval =
+				cfg_t.tipo_form_id === 1 &&
+				cfg_t.genera_autoeval === true &&
+				[3, 4].includes(cfg_t.autoeval_tipo_form_id);
+
+			if (!mustCreateAutoeval) {
+				return {
+					cfg_eval: cfgEval,
+					cfg_autoeval: null,
+					relation: null,
+					scope_count: scopes.length,
+				};
+			}
+
+			const cfgAutoeval = await tx.cfg_t.create({
+				data: {
+					tipo_id: cfg_t.tipo_id,
+					tipo_form_id: cfg_t.autoeval_tipo_form_id,
+					genera_autoeval: false,
+					autoeval_tipo_form_id: null,
+					fecha_inicio: cfg_t.fecha_inicio,
+					fecha_fin: cfg_t.fecha_fin,
+					es_cmt_gen: cfg_t.es_cmt_gen,
+					es_cmt_gen_oblig: cfg_t.es_cmt_gen_oblig,
+					es_activo: cfg_t.es_activo,
+				},
+			});
+
+			await tx.cfg_t_scope.createMany({
+				data: scopes.map(scope => ({
+					cfg_t_id: cfgAutoeval.id,
+					sede_id: scope.sede_id,
+					periodo_id: scope.periodo_id,
+					programa_id: scope.programa_id,
+					semestre_id: scope.semestre_id,
+					grupo_id: scope.grupo_id,
+				})),
+			});
+
+			// Usar autoeval_role_mix_ids si están disponibles, sino usar role_mix_ids
+			const autoevalRoleIds = autoeval_role_mix_ids && autoeval_role_mix_ids.length > 0 
+				? autoeval_role_mix_ids 
+				: role_mix_ids;
+
+			await tx.cfg_t_rol.createMany({
+				data: autoevalRoleIds.map(rolMixId => ({
+					cfg_t_id: cfgAutoeval.id,
+					rol_mix_id: rolMixId,
+				})),
+				skipDuplicates: true,
+			});
+
+			const relation = await tx.cfg_t_rel.create({
+				data: {
+					cfg_eval_id: cfgEval.id,
+					cfg_autoeval_id: cfgAutoeval.id,
+				},
+			});
+
+			return {
+				cfg_eval: cfgEval,
+				cfg_autoeval: cfgAutoeval,
+				relation,
+				scope_count: scopes.length,
+			};
+		});
+	}
+
 	async findAspectosEscalasByCfgTId(cfgTId) {
 		// Fetch cfg_t data for configuration flags and tipo_evaluacion
 		const cfgT = await prisma.cfg_t.findUnique({
@@ -330,6 +421,7 @@ class CfgTRepository {
 			results = await this.#getAllActiveCfgTs();
 		} else {
 			results = await this.#getCfgTsByUserRoles(userAppRoleIds, userAuthRoleIds);
+			results = await this.#includeRelatedCfgTs(results, userAppRoleIds, userAuthRoleIds);
 		}
 
 		if (isEstudiante) {
@@ -351,8 +443,161 @@ class CfgTRepository {
 		if (sort?.sortBy && sort?.sortOrder) {
 			results = this.#applySort(results, sort);
 		}
+
+		results = await this.#enrichCfgTsWithScopesAndRelation(results);
 		
 		return results;
+	}
+
+	async #includeRelatedCfgTs(cfgTs = [], userAppRoleIds = [], userAuthRoleIds = []) {
+		if (!Array.isArray(cfgTs) || cfgTs.length === 0) return cfgTs;
+
+		const cfgTIds = cfgTs
+			.map(cfg => Number(cfg?.id))
+			.filter(Boolean);
+
+		if (!cfgTIds.length) return cfgTs;
+
+		const relations = await prisma.cfg_t_rel.findMany({
+			where: {
+				OR: [
+					{ cfg_eval_id: { in: cfgTIds } },
+					{ cfg_autoeval_id: { in: cfgTIds } },
+				],
+			},
+		});
+
+		if (!relations.length) return cfgTs;
+
+		const currentIdsSet = new Set(cfgTIds.map(String));
+		const relatedIds = new Set();
+
+		for (const relation of relations) {
+			if (relation?.cfg_eval_id != null && !currentIdsSet.has(String(relation.cfg_eval_id))) {
+				relatedIds.add(relation.cfg_eval_id);
+			}
+			if (relation?.cfg_autoeval_id != null && !currentIdsSet.has(String(relation.cfg_autoeval_id))) {
+				relatedIds.add(relation.cfg_autoeval_id);
+			}
+		}
+
+		if (!relatedIds.size) return cfgTs;
+
+		const relatedCfgTs = await prisma.cfg_t.findMany({
+			where: { id: { in: Array.from(relatedIds) } },
+			include: {
+				tipo_form: {
+					select: { id: true, nombre: true }
+				},
+				ct_map: {
+					include: {
+						cat_t: true,
+						tipo: true
+					}
+				}
+			},
+		});
+
+		if (!relatedCfgTs.length) return cfgTs;
+
+		const relatedWithRoles = await this.#enrichCfgTsWithRoles(relatedCfgTs);
+
+		const userAppRoleIdsSet = new Set((userAppRoleIds || []).map(String));
+		const userAuthRoleIdsSet = new Set((userAuthRoleIds || []).map(String));
+
+		const relatedFilteredByUserRole = relatedWithRoles.filter(cfgT =>
+			cfgT.rolesRequeridos?.some(({ rol_origen_id, origen }) => {
+				const roleId = String(rol_origen_id);
+				return origen === 'APP' ? userAppRoleIdsSet.has(roleId) : userAuthRoleIdsSet.has(roleId);
+			})
+		);
+
+		return [...cfgTs, ...relatedFilteredByUserRole];
+	}
+
+	async #enrichCfgTsWithScopesAndRelation(cfgTs = []) {
+		if (!Array.isArray(cfgTs) || cfgTs.length === 0) return cfgTs;
+
+		const cfgTIds = cfgTs
+			.map(cfg => Number(cfg?.id))
+			.filter(Boolean);
+
+		if (!cfgTIds.length) {
+			return cfgTs.map(cfg => ({
+				...cfg,
+				scopes: [],
+				cfg_t_rel: null,
+			}));
+		}
+
+		const [scopes, relations] = await Promise.all([
+			prisma.cfg_t_scope.findMany({
+				where: { cfg_t_id: { in: cfgTIds } },
+				include: {
+					sede: { select: { id: true, nombre: true } },
+					periodo: { select: { id: true, nombre: true } },
+					programa: { select: { id: true, nombre: true } },
+					smstre: { select: { id: true, nombre: true } },
+					grp: { select: { id: true, nombre: true } },
+				},
+				orderBy: { id: 'asc' },
+			}),
+			prisma.cfg_t_rel.findMany({
+				where: {
+					OR: [
+						{ cfg_eval_id: { in: cfgTIds } },
+						{ cfg_autoeval_id: { in: cfgTIds } },
+					],
+				},
+			}),
+		]);
+
+		const scopesByCfgTId = new Map();
+		for (const scope of scopes) {
+			if (!scopesByCfgTId.has(scope.cfg_t_id)) {
+				scopesByCfgTId.set(scope.cfg_t_id, []);
+			}
+
+			scopesByCfgTId.get(scope.cfg_t_id).push({
+				id: scope.id,
+				cfg_t_id: scope.cfg_t_id,
+				sede_id: scope.sede_id,
+				sede_nombre: scope.sede?.nombre || null,
+				periodo_id: scope.periodo_id,
+				periodo_nombre: scope.periodo?.nombre || null,
+				programa_id: scope.programa_id,
+				programa_nombre: scope.programa?.nombre || null,
+				semestre_id: scope.semestre_id,
+				semestre_nombre: scope.smstre?.nombre || null,
+				grupo_id: scope.grupo_id,
+				grupo_nombre: scope.grp?.nombre || null,
+			});
+		}
+
+		const relationByCfgTId = new Map();
+		for (const relation of relations) {
+			relationByCfgTId.set(relation.cfg_eval_id, {
+				id: relation.id,
+				cfg_eval_id: relation.cfg_eval_id,
+				cfg_autoeval_id: relation.cfg_autoeval_id,
+				pareja_cfg_t_id: relation.cfg_autoeval_id,
+				rol_en_rel: 'EVAL',
+			});
+
+			relationByCfgTId.set(relation.cfg_autoeval_id, {
+				id: relation.id,
+				cfg_eval_id: relation.cfg_eval_id,
+				cfg_autoeval_id: relation.cfg_autoeval_id,
+				pareja_cfg_t_id: relation.cfg_eval_id,
+				rol_en_rel: 'AUTOEVAL',
+			});
+		}
+
+		return cfgTs.map(cfg => ({
+			...cfg,
+			scopes: scopesByCfgTId.get(cfg.id) || [],
+			cfg_t_rel: relationByCfgTId.get(cfg.id) || null,
+		}));
 	}
 
 	async #getAllCfgTs() {
@@ -422,11 +667,19 @@ class CfgTRepository {
 				});
 			}
 			if (rol_mix) {
-				cfgTMap.get(cfgT.id).rolesRequeridos.push({
-					rol_mix_id: rol_mix.id,
-					rol_origen_id: rol_mix.rol_origen_id,
-					origen: rol_mix.origen,
-				});
+				const currentRoles = cfgTMap.get(cfgT.id).rolesRequeridos;
+				const alreadyExists = currentRoles.some(
+					role => role.rol_mix_id === rol_mix.id
+				);
+
+				if (!alreadyExists) {
+					currentRoles.push({
+						rol_mix_id: rol_mix.id,
+						nombre: rol_mix.nombre ?? null,
+						rol_origen_id: rol_mix.rol_origen_id,
+						origen: rol_mix.origen,
+					});
+				}
 			}
 		}
 
@@ -492,11 +745,19 @@ class CfgTRepository {
 				rolesMap.set(cfgTRole.cfg_t_id, []);
 			}
 			if (cfgTRole.rol_mix) {
-				rolesMap.get(cfgTRole.cfg_t_id).push({
-					rol_mix_id: cfgTRole.rol_mix.id,
-					rol_origen_id: cfgTRole.rol_mix.rol_origen_id,
-					origen: cfgTRole.rol_mix.origen,
-				});
+				const currentRoles = rolesMap.get(cfgTRole.cfg_t_id);
+				const alreadyExists = currentRoles.some(
+					role => role.rol_mix_id === cfgTRole.rol_mix.id
+				);
+
+				if (!alreadyExists) {
+					currentRoles.push({
+						rol_mix_id: cfgTRole.rol_mix.id,
+						nombre: cfgTRole.rol_mix.nombre ?? null,
+						rol_origen_id: cfgTRole.rol_mix.rol_origen_id,
+						origen: cfgTRole.rol_mix.origen,
+					});
+				}
 			}
 		}
 
@@ -559,13 +820,21 @@ class CfgTRepository {
 			include: { rol_mix: true },
 		});
 
-		return cfgTRoles.map(cfgTRol => ({
-			id: cfgTRol.id,
-			rol_mix_id: cfgTRol.rol_mix?.id ?? null,
-			rol_origen_id: cfgTRol.rol_mix?.rol_origen_id ?? null,
-			nombre: cfgTRol.rol_mix?.nombre ?? null,
-			origen: cfgTRol.rol_mix?.origen ?? null,
-		}));
+		const uniqueRoles = new Map();
+		for (const cfgTRol of cfgTRoles) {
+			if (!cfgTRol.rol_mix?.id) continue;
+			if (!uniqueRoles.has(cfgTRol.rol_mix.id)) {
+				uniqueRoles.set(cfgTRol.rol_mix.id, {
+					id: cfgTRol.id,
+					rol_mix_id: cfgTRol.rol_mix.id,
+					rol_origen_id: cfgTRol.rol_mix.rol_origen_id ?? null,
+					nombre: cfgTRol.rol_mix.nombre ?? null,
+					origen: cfgTRol.rol_mix.origen ?? null,
+				});
+			}
+		}
+
+		return Array.from(uniqueRoles.values());
 	}
 
 	async findEvaluacionesByCfgTAndUser(cfgTId, username, { isDocente, isEstudiante }) {
@@ -725,6 +994,35 @@ class CfgTRepository {
 				semestre: getMostFrequent(data?.semestres) || null
 			};
 		});
+	}
+
+	async findScopeWithNamesByCfgTId(cfgTId) {
+		const scopes = await prisma.cfg_t_scope.findMany({
+			where: { cfg_t_id: cfgTId },
+			include: {
+				sede: { select: { id: true, nombre: true } },
+				periodo: { select: { id: true, nombre: true } },
+				programa: { select: { id: true, nombre: true } },
+				smstre: { select: { id: true, nombre: true } },
+				grp: { select: { id: true, nombre: true } },
+			},
+			orderBy: { id: 'asc' },
+		});
+
+		return scopes.map(scope => ({
+			id: scope.id,
+			cfg_t_id: scope.cfg_t_id,
+			sede_id: scope.sede_id,
+			sede_nombre: scope.sede?.nombre || null,
+			periodo_id: scope.periodo_id,
+			periodo_nombre: scope.periodo?.nombre || null,
+			programa_id: scope.programa_id,
+			programa_nombre: scope.programa?.nombre || null,
+			semestre_id: scope.semestre_id,
+			semestre_nombre: scope.smstre?.nombre || null,
+			grupo_id: scope.grupo_id,
+			grupo_nombre: scope.grp?.nombre || null,
+		}));
 	}
 }
 

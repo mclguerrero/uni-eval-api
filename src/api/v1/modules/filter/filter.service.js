@@ -20,6 +20,13 @@ class FilterService {
   }
 
   /**
+   * Obtiene todos los filtros desde base local (tablas catálogo)
+   */
+  async getAllFiltersLocal() {
+    return this.repository.getAllFiltersLocal();
+  }
+
+  /**
    * Obtiene valores únicos de sede
    */
   async getSedes() {

@@ -6,6 +6,11 @@ const sort = require('@middlewares/http/sort');
 
 const router = express.Router();
 
+// Nuevo: Mount nuevo tipo_form metrics (tipo 2, 3, 4)
+router.use('/encuesta', require('./encuesta/metr.router'));
+router.use('/autoevaluacion', require('./autoevaluacion/metr.router'));
+router.use('/autoevaluacion-materia', require('./autoevaluacion-materia/metr.router'));
+
 // GET /metric/evaluations/summary?cfg_t=1&...filters
 router.get('/evaluations/summary', ctrl.summary);
 

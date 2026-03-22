@@ -84,6 +84,13 @@ const cfgT = createValidatedCrud(
   }
 );
 
+const cfg_t_scope = createCrudModule({
+  name: 'cfg_t_scope',
+  route: '/cfg/t/scope',
+  displayName: 'Configuración Tipo Scope',
+  schemaName: 'ConfiguracionTipoScope',
+});
+
 const cfg_t_rol = createCrudModule({
   name: 'cfg_t_rol',
   route: '/cfg/t/rol',
@@ -122,6 +129,7 @@ module.exports = {
   catT,
   tipo_form,
   cfgT,
+  cfg_t_scope,
   cfg_t_rol,
   catTmap,
 };

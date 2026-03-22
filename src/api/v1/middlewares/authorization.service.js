@@ -1,5 +1,83 @@
 const { prisma } = require('@config/prisma');
 const AppError = require('@utils/AppError');
+const UserRepository = require('../modules/auth/user/user.repository');
+const UserService = require('../modules/auth/user/user.service');
+
+const userService = new UserService(new UserRepository());
+
+function normalizeText(value) {
+  return String(value ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toUpperCase();
+}
+
+function addSetValue(set, value) {
+  const normalized = normalizeText(value);
+  if (normalized) set.add(normalized);
+}
+
+function matchesScalarScope(scopeValue, userValue) {
+  if (!scopeValue) return true;
+  if (!userValue) return false;
+  return normalizeText(scopeValue) === normalizeText(userValue);
+}
+
+function matchesSetScope(scopeValue, userSet) {
+  if (!scopeValue) return true;
+  if (!userSet || userSet.size === 0) return false;
+  return userSet.has(normalizeText(scopeValue));
+}
+
+async function getUserAcademicScopeContext(user) {
+  try {
+    const data = await userService.getMateriasForUser(user);
+    if (!data || typeof data !== 'object') return null;
+
+    const programas = new Set();
+    const semestres = new Set();
+    const grupos = new Set();
+
+    addSetValue(programas, data.programa);
+    addSetValue(semestres, data.semestre);
+    addSetValue(grupos, data.grupo);
+
+    if (Array.isArray(data.materias)) {
+      for (const materia of data.materias) {
+        addSetValue(programas, materia?.programa);
+        addSetValue(semestres, materia?.semestre);
+
+        if (Array.isArray(materia?.grupos)) {
+          for (const group of materia.grupos) {
+            addSetValue(grupos, group?.nombre);
+          }
+        }
+      }
+    }
+
+    return {
+      sede: normalizeText(data.sede),
+      periodo: normalizeText(data.periodo),
+      programas,
+      semestres,
+      grupos,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function matchesScopeWithUserContext(scope, userContext) {
+  if (!userContext) return true;
+
+  return (
+    matchesScalarScope(scope?.sede?.nombre, userContext.sede)
+    && matchesScalarScope(scope?.periodo?.nombre, userContext.periodo)
+    && matchesSetScope(scope?.programa?.nombre, userContext.programas)
+    && matchesSetScope(scope?.smstre?.nombre, userContext.semestres)
+    && matchesSetScope(scope?.grp?.nombre, userContext.grupos)
+  );
+}
 
 /**
  * Obtiene la configuración activa y vigente (por fecha)
@@ -23,38 +101,13 @@ async function getActiveConfig() {
 }
 
 /**
- * Obtiene los roles permitidos para una configuración específica
- * @param {number} cfgTId - ID de la configuración
- * @returns {Promise<Array<{rol_origen_id:number, origen:'APP'|'AUTH'}>>}
- */
-async function getAllowedRolesForConfig(cfgTId) {
-  try {
-    const rows = await prisma.cfg_t_rol.findMany({
-      where: { cfg_t_id: cfgTId },
-      select: {
-        rol_mix: {
-          select: { rol_origen_id: true, origen: true },
-        },
-      },
-    });
-
-    return rows
-      .map(r => r.rol_mix)
-      .filter(r => r && r.rol_origen_id != null);
-  } catch (error) {
-    throw new AppError('Error al obtener roles permitidos', 500, error);
-  }
-}
-
-/**
- * Valida si el usuario tiene autorización basada en roles y configuración
+ * Valida si el usuario tiene autorización basada en scopes
  * @param {Object} user - Usuario desde req.user
  * @param {number|null} cfgTId - ID de configuración específica (opcional)
- * @returns {Promise<boolean>} true si está autorizado
+ * @returns {Promise<boolean>} true si está autorizado (tiene al menos un scope válido)
  */
 async function isUserAuthorized(user, cfgTId = null) {
-  const hasAnyRoleArray = Array.isArray(user?.rolesAppIds) || Array.isArray(user?.rolesAuthIds);
-  if (!user || !hasAnyRoleArray) return false;
+  if (!user) return false;
 
   const config = cfgTId
     ? await prisma.cfg_t.findUnique({ where: { id: Number(cfgTId) } })
@@ -62,18 +115,109 @@ async function isUserAuthorized(user, cfgTId = null) {
 
   if (!config) return false;
 
-  const allowedRoles = await getAllowedRolesForConfig(config.id);
-  if (allowedRoles.length === 0) return false;
+  const scopes = await getUserScopesForConfig(user, config.id);
+  return scopes.length > 0;
+}
 
-  const userAppRoleIds = new Set((user.rolesAppIds || []).map(String));
-  const userAuthRoleIds = new Set((user.rolesAuthIds || []).map(String));
+/**
+ * Obtiene todos los scopes de un usuario para una configuración específica
+ * Incluye datos completos de scope: sede, periodo, programa, semestre, grupo
+ * @param {Object} user - Usuario desde req.user
+ * @param {number} cfgTId - ID de la configuración
+ * @returns {Promise<Array<Object>>} Scopes con datos completos
+ */
+async function getUserScopesForConfig(user, cfgTId) {
+  if (!user) return [];
 
-  return allowedRoles.some(({ rol_origen_id, origen }) => {
-    const roleId = String(rol_origen_id);
-    if (origen === 'APP') return userAppRoleIds.has(roleId);
-    if (origen === 'AUTH') return userAuthRoleIds.has(roleId);
-    return false;
-  });
+  try {
+    const cfgTRoles = await prisma.cfg_t_rol.findMany({
+      where: { cfg_t_id: Number(cfgTId) },
+      select: {
+        rol_mix: {
+          select: {
+            id: true,
+            nombre: true,
+            rol_origen_id: true,
+            origen: true,
+          },
+        },
+      },
+    });
+
+    const userAppRoleIds = new Set((user.rolesAppIds || []).map(String));
+    const userAuthRoleIds = new Set((user.rolesAuthIds || []).map(String));
+
+    const hasMatchingRole = cfgTRoles.some(({ rol_mix: rolMix }) => {
+      const roleId = String(rolMix?.rol_origen_id);
+      return (
+        (rolMix?.origen === 'APP' && userAppRoleIds.has(roleId))
+        || (rolMix?.origen === 'AUTH' && userAuthRoleIds.has(roleId))
+      );
+    });
+
+    if (!hasMatchingRole) return [];
+
+    const scopes = await prisma.cfg_t_scope.findMany({
+      where: { cfg_t_id: Number(cfgTId) },
+      select: {
+        id: true,
+        cfg_t_id: true,
+        sede_id: true,
+        periodo_id: true,
+        programa_id: true,
+        semestre_id: true,
+        grupo_id: true,
+        sede: {
+          select: { id: true, nombre: true },
+        },
+        periodo: {
+          select: { id: true, nombre: true },
+        },
+        programa: {
+          select: { id: true, nombre: true },
+        },
+        smstre: {
+          select: { id: true, nombre: true },
+        },
+        grp: {
+          select: { id: true, nombre: true },
+        },
+      },
+    });
+
+    const userContext = await getUserAcademicScopeContext(user);
+
+    const matchedRoles = cfgTRoles
+      .map(item => item.rol_mix)
+      .filter(Boolean);
+
+    return scopes
+      .filter(scope => matchesScopeWithUserContext(scope, userContext))
+      .map(scope => ({
+        ...scope,
+        roles_requeridos: matchedRoles,
+      }));
+  } catch (error) {
+    throw new AppError('Error al obtener scopes del usuario', 500, error);
+  }
+}
+
+/**
+ * Obtiene los scopes activos del usuario para la configuración vigente
+ * @param {Object} user - Usuario desde req.user
+ * @returns {Promise<Array<Object>>} Scopes con datos completos de la config activa
+ */
+async function getUserActiveScopes(user) {
+  if (!user) return [];
+
+  try {
+    const config = await getActiveConfig();
+    if (!config) return [];
+
+    return await getUserScopesForConfig(user, config.id);
+  } catch (error) {
+    throw new AppError('Error al obtener scopes activos', 500, error);
+  }
 }
 
 /**
@@ -90,11 +234,12 @@ async function getUserAuthorizationInfo(user) {
     };
   }
 
-  const allowedRoles = await getAllowedRolesForConfig(config.id);
+  const userScopes = await getUserScopesForConfig(user, config.id);
+
   return {
     hasActiveConfig: true,
     configId: config.id,
-    allowedRoles,
+    userScopes,
     rolesAppIds: user?.rolesAppIds || [],
     rolesAuthIds: user?.rolesAuthIds || [],
   };
@@ -102,7 +247,8 @@ async function getUserAuthorizationInfo(user) {
 
 module.exports = {
   getActiveConfig,
-  getAllowedRolesForConfig,
   isUserAuthorized,
   getUserAuthorizationInfo,
+  getUserScopesForConfig,
+  getUserActiveScopes,
 };
