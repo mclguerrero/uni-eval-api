@@ -667,7 +667,16 @@
  * @swagger
  * /metric/evaluations/ranking:
  *   get:
- *     summary: Ranking of docentes with Bayesian adjustment
+ *     summary: Ranking robusto de docentes (Bayes + participación + confianza)
+ *     description: |
+ *       Retorna ranking de docentes con score único `score_rank`.
+ *       Incluye docentes con respuestas en el ranking principal y también docentes sin respuestas (en cero) al final.
+ *
+ *       **Fórmulas principales:**
+ *       - promedio_docente = SUM(puntajes) / total_respuestas
+ *       - adjusted = (v/(v+m))*promedio_docente + (m/(v+m))*global_avg, donde v = total_respuestas
+ *       - score_rank = adjusted * factor_participacion * factor_confianza
+ *       - factor_confianza = min(1, total_respuestas / m)
  *     tags: [Metric]
  *     parameters:
  *       - in: query
@@ -710,14 +719,92 @@
  *                     properties:
  *                       docente:
  *                         type: string
- *                       avg:
+ *                       nombre_docente:
+ *                         type: string
+ *                         nullable: true
+ *                       score_rank:
+ *                         type: number
+ *                       promedio_docente:
+ *                         type: number
+ *                       promedio_evaluacion:
  *                         type: number
  *                       adjusted:
  *                         type: number
- *                       realizados:
+ *                       total_respuestas:
+ *                         type: integer
+ *                       participacion:
+ *                         type: number
+ *                       respuestas_unicas:
  *                         type: integer
  *                       universo:
  *                         type: integer
+ *                       desviacion_estandar:
+ *                         type: number
+ *                         nullable: true
+ *                       comentarios:
+ *                         type: object
+ *                         properties:
+ *                           cmt_gen:
+ *                             type: integer
+ *                           cmt:
+ *                             type: integer
+ *                           total:
+ *                             type: integer
+ *                       factores:
+ *                         type: object
+ *                         properties:
+ *                           v:
+ *                             type: integer
+ *                           m:
+ *                             type: number
+ *                           global_avg:
+ *                             type: number
+ *                           participacion_promedio:
+ *                             type: number
+ *                           factor_participacion:
+ *                             type: number
+ *                           factor_confianza:
+ *                             type: number
+ *                       calculo:
+ *                         type: object
+ *                         properties:
+ *                           promedio_docente:
+ *                             type: object
+ *                             properties:
+ *                               suma_puntajes:
+ *                                 type: number
+ *                               total_respuestas:
+ *                                 type: integer
+ *                               formula:
+ *                                 type: string
+ *                           adjusted:
+ *                             type: object
+ *                             properties:
+ *                               formula:
+ *                                 type: string
+ *                           score_rank:
+ *                             type: object
+ *                             properties:
+ *                               formula:
+ *                                 type: string
+ *                       sin_respuestas:
+ *                         type: boolean
+ *                         description: Presente y true cuando el docente no tiene respuestas y se envía en bloque final con score 0.
+ *                 meta:
+ *                   type: object
+ *                   properties:
+ *                     m:
+ *                       type: number
+ *                     global_avg:
+ *                       type: number
+ *                     participacion_promedio:
+ *                       type: number
+ *                     total_docentes:
+ *                       type: integer
+ *                     docentes_con_respuestas:
+ *                       type: integer
+ *                     docentes_sin_respuestas:
+ *                       type: integer
  */
 
 /**

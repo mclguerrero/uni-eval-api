@@ -424,7 +424,8 @@ class CfgTRepository {
 			results = await this.#includeRelatedCfgTs(results, userAppRoleIds, userAuthRoleIds);
 		}
 
-		if (isEstudiante) {
+		// No filtrar por fecha_fin si el usuario es admin
+		if (isEstudiante && !isAdmin) {
 			const now = new Date();
 			results = results.filter(item => {
 				if (!item?.fecha_fin) return true;
