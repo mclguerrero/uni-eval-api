@@ -19,6 +19,15 @@ router.get('/r',
   controller.getCfgTList
 );
 
+// GET /cfg/t/r/:id -> listado de configuraciones filtrando por id
+router.get('/r/:id', 
+  ensureAuth, 
+  requireAuthorization(), 
+  search({ searchFields: ['nombre', 'descripcion'], minLength: 2 }),
+  sort({ defaultSortBy: 'id', defaultSortOrder: 'desc', allowedFields: ['id', 'nombre', 'fecha_inicio'] }),
+  controller.getCfgId
+);
+
 // GET /cfg/t/:id/a-e -> aspectos y escalas relacionados via a_e
 router.get('/:id/a-e', ensureAuth, requireAuthRoles(1, 2), controller.getAspectosEscalas);
 

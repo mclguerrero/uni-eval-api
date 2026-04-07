@@ -3,6 +3,14 @@ const MESSAGES = require('@constants/messages');
 const { hasGlobalRole } = require('@middlewares/auth.middleware');
 
 class CfgTService {
+
+	// Devuelve la configuración filtrada por id (y pareja si existe)
+	async getCfgId(id, search, sort) {
+		if (!id) throw new Error('ID requerido');
+		// Busca la configuración principal y su pareja si existe
+		const data = await this.repository.findCfgByIdWithPair(id, search, sort);
+		return data;
+	}
 	constructor(repository) {
 		this.repository = repository;
 	}

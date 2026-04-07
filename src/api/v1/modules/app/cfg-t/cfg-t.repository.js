@@ -20,6 +20,119 @@ function getMostFrequent(values) {
 }
 
 class CfgTRepository {
+
+	// Busca la configuración por id y su pareja si existe, con scopes y roles
+	async findCfgByIdWithPair(id, search, sort) {
+		// Buscar la configuración principal
+		let cfgT = await prisma.cfg_t.findUnique({
+			where: { id },
+			include: {
+				tipo_form: { select: { id: true, nombre: true } },
+				ct_map: { include: { cat_t: true, tipo: true } },
+			},
+		});
+		if (!cfgT) return [];
+
+		// Enriquecer con roles requeridos
+		const roles = await prisma.cfg_t_rol.findMany({
+			where: { cfg_t_id: id },
+			include: { rol_mix: true },
+		});
+		const rolesRequeridos = roles.map(r => ({
+			rol_mix_id: r.rol_mix?.id,
+			nombre: r.rol_mix?.nombre ?? null,
+			rol_origen_id: r.rol_mix?.rol_origen_id,
+			origen: r.rol_mix?.origen,
+		}));
+
+		// Enriquecer con scopes
+		const scopes = await prisma.cfg_t_scope.findMany({
+			where: { cfg_t_id: id },
+			include: {
+				sede: { select: { id: true, nombre: true } },
+				periodo: { select: { id: true, nombre: true } },
+				programa: { select: { id: true, nombre: true } },
+				smstre: { select: { id: true, nombre: true } },
+				grp: { select: { id: true, nombre: true } },
+			},
+			orderBy: { id: 'asc' },
+		});
+		const scopesMapped = scopes.map(scope => ({
+			id: scope.id,
+			cfg_t_id: scope.cfg_t_id,
+			sede_id: scope.sede_id,
+			sede_nombre: scope.sede?.nombre || null,
+			periodo_id: scope.periodo_id,
+			periodo_nombre: scope.periodo?.nombre || null,
+			programa_id: scope.programa_id,
+			programa_nombre: scope.programa?.nombre || null,
+			semestre_id: scope.semestre_id,
+			semestre_nombre: scope.smstre?.nombre || null,
+			grupo_id: scope.grupo_id,
+			grupo_nombre: scope.grp?.nombre || null,
+		}));
+
+		// Buscar si tiene pareja (cfg_t_rel)
+		const rel = await prisma.cfg_t_rel.findFirst({
+			where: {
+				OR: [
+					{ cfg_eval_id: id },
+					{ cfg_autoeval_id: id },
+				],
+			},
+		});
+
+		// Formatear cfg_t_rel
+		let cfg_t_rel = null;
+		if (rel) {
+			cfg_t_rel = {
+				id: rel.id,
+				cfg_eval_id: rel.cfg_eval_id,
+				cfg_autoeval_id: rel.cfg_autoeval_id,
+				pareja_cfg_t_id: rel.cfg_eval_id === id ? rel.cfg_autoeval_id : rel.cfg_eval_id,
+				rol_en_rel: rel.cfg_eval_id === id ? 'EVAL' : 'AUTOEVAL',
+			};
+		}
+
+		// Formatear respuesta
+		const result = {
+			id: cfgT.id,
+			tipo_id: cfgT.tipo_id,
+			tipo_form: cfgT.tipo_form,
+			fecha_inicio: cfgT.fecha_inicio,
+			fecha_fin: cfgT.fecha_fin,
+			es_cmt_gen: cfgT.es_cmt_gen,
+			es_cmt_gen_oblig: cfgT.es_cmt_gen_oblig,
+			es_activo: cfgT.es_activo,
+			fecha_creacion: cfgT.fecha_creacion,
+			fecha_actualizacion: cfgT.fecha_actualizacion,
+			tipo_evaluacion: cfgT.ct_map
+				? {
+						id: cfgT.ct_map.id,
+						categoria: cfgT.ct_map.cat_t
+							? {
+									id: cfgT.ct_map.cat_t.id,
+									nombre: cfgT.ct_map.cat_t.nombre,
+									descripcion: cfgT.ct_map.cat_t.descripcion || null,
+								}
+							: null,
+						tipo: cfgT.ct_map.tipo
+							? {
+									id: cfgT.ct_map.tipo.id,
+									nombre: cfgT.ct_map.tipo.nombre,
+									descripcion: cfgT.ct_map.tipo.descripcion || null,
+								}
+							: null,
+					}
+				: null,
+			rolesRequeridos,
+			scopes: scopesMapped,
+			cfg_t_rel,
+		};
+
+		return [result];
+	}
+	
 	async createCfgTFull({ cfg_t, scopes, role_mix_ids, autoeval_role_mix_ids }) {
 		return prisma.$transaction(async tx => {
 			const cfgEval = await tx.cfg_t.create({ data: cfg_t });

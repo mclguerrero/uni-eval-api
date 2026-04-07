@@ -5,6 +5,20 @@ const CfgTRepository = require('./cfg-t.repository');
 const service = new CfgTService(new CfgTRepository());
 
 class CfgTController {
+	// GET /cfg/t/r/:id -> configuración filtrada por id (y pareja si existe)
+	getCfgId = async (req, res, next) => {
+		try {
+			const id = Number(req.params.id);
+			const data = await service.getCfgId(id, req.search, req.sort);
+			return successResponse(res, {
+				success: true,
+				message: 'Configuración filtrada por id (y pareja si existe) obtenida correctamente',
+				data,
+			});
+		} catch (err) {
+			next(err);
+		}
+	};
 	createCfgTFull = async (req, res, next) => {
 		try {
 			const data = await service.createCfgTFull(req.body);

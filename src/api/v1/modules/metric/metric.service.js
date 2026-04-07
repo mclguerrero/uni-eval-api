@@ -1,9 +1,18 @@
-const repo = require('./metric.repository');
+
 const { analyzeFromAggregated } = require('../ai/comment-analysis.service');
+const CfgTRepository = require('../app/cfg-t/cfg-t.repository');
 const path = require('path');
 const fs = require('fs');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
+
+
+async function CfgId(cfgTId, search, sort) {
+    // Instanciar el repositorio y llamar el método
+    const repo = new CfgTRepository();
+    return repo.findCfgByIdWithPair(cfgTId, search, sort);
+}
+
 /**
  * Format a Date or date-like value to YYYY-MM-DD.
  * Falls back to empty string if invalid.
@@ -70,8 +79,67 @@ async function docenteAspectMetrics(query) {
     return repo.getDocenteAspectMetrics(query);
 }
 
+const repo = require('./metric.repository');
 async function docenteMateriaMetrics(query) {
-    return repo.getDocenteMateriaMetrics(query);
+    const materiasStats = await repo.getDocenteMateriaMetrics(query);
+    const cfg_t = query.cfg_t;
+    const docente = query.docente;
+    const materias = await Promise.all((materiasStats?.materias || []).map(async m => {
+        const aspectData = await repo.getDocenteAspectMetrics({ cfg_t, docente, codigo_materia: m.codigo_materia });
+        const notaFinal = aspectData?.resultado_final?.nota_final_ponderada ?? null;
+        const materiaObj = {
+            codigo_materia: String(m.codigo_materia || ''),
+            nombre_materia: m.nombre_materia || String(m.codigo_materia || ''),
+            nom_programa: m.nom_programa,
+            semestre: m.semestre,
+            total_evaluaciones: m.total_evaluaciones,
+            total_realizadas: m.total_realizadas,
+            total_pendientes: m.total_pendientes,
+            total_evaluaciones_registradas: m.total_evaluaciones_registradas,
+            total_estudiantes_registrados: m.total_estudiantes_registrados,
+            porcentaje_cumplimiento: m.porcentaje_cumplimiento != null ? Number(m.porcentaje_cumplimiento.toFixed(2)) : m.porcentaje_cumplimiento,
+            eval: {
+                total_respuestas: aspectData?.evaluacion_estudiantes?.total_respuestas ?? null,
+                total_cmt: aspectData?.evaluacion_estudiantes?.total_cmt ?? null,
+                total_cmt_gen: aspectData?.evaluacion_estudiantes?.total_cmt_gen ?? null,
+                suma_cmt: aspectData?.evaluacion_estudiantes?.suma_cmt ?? null,
+                nota_final_ponderada: aspectData?.resultado_final?.nota_final_ponderada ?? null
+            }
+        };
+        if (m.grupo) {
+            materiaObj.grupo = m.grupo;
+        }
+        if (m.grupos) {
+            materiaObj.grupos = await Promise.all(m.grupos.map(async g => {
+                const aspectDataGrupo = await repo.getDocenteAspectMetrics({ cfg_t, docente, codigo_materia: m.codigo_materia, grupo: g.grupo });
+                const {
+                    suma,
+                    promedio_general,
+                    desviacion_general,
+                    total_aspectos,
+                    nota_final_ponderada, 
+                    ...rest
+                } = g;
+                return {
+                    ...rest,
+                    porcentaje_cumplimiento: g.porcentaje_cumplimiento != null ? Number(g.porcentaje_cumplimiento.toFixed(2)) : g.porcentaje_cumplimiento,
+                    eval: {
+                        total_respuestas: aspectDataGrupo?.evaluacion_estudiantes?.total_respuestas ?? null,
+                        total_cmt: aspectDataGrupo?.evaluacion_estudiantes?.total_cmt ?? null,
+                        total_cmt_gen: aspectDataGrupo?.evaluacion_estudiantes?.total_cmt_gen ?? null,
+                        suma_cmt: aspectDataGrupo?.evaluacion_estudiantes?.suma_cmt ?? null,
+                        nota_final_ponderada: aspectDataGrupo?.resultado_final?.nota_final_ponderada ?? null
+                    }
+                };
+            }));
+        }
+        return materiaObj;
+    }));
+    return {
+        docente: materiasStats?.docente,
+        nombre_docente: materiasStats?.nombre_docente,
+        materias
+    };
 }
 
 async function docenteMateriaCompletion(query) {
@@ -309,7 +377,20 @@ async function generateDocxReport({
     // - docenteAspectMetrics: fuente oficial de métricas por aspecto (lo pintado en Word)
     // - docenteComments: comentarios + conclusiones IA/cache
     // ================================
-    const aspectData = await docenteAspectMetrics({
+
+    // Obtener la data de los endpoints ya procesada
+    // Obtener los datos listos desde los endpoints
+    const aspectosEndpoint = await docenteAspectMetrics({
+        cfg_t,
+        docente,
+        codigo_materia,
+        sede,
+        periodo,
+        programa,
+        semestre,
+        grupo
+    });
+    const materiasEndpoint = await docenteMateriaMetrics({
         cfg_t,
         docente,
         codigo_materia,
@@ -320,299 +401,42 @@ async function generateDocxReport({
         grupo
     });
 
-    const metricsData = await docenteComments({
-        cfg_t,
-        docente,
-        codigo_materia,
-        sede,
-        periodo,
-        programa,
-        semestre,
-        grupo
-    });
+    const evalEndpoint = await CfgId(cfgId);
 
-    // Métricas por materia del docente
-    const materiasStats = await repo.getDocenteMateriaMetrics({ cfg_t, docente, sede, periodo, programa, semestre, grupo });
-    const materias = (materiasStats?.materias || []).map(m => {
-        const hasStudentResponses = Number(m.total_realizadas || 0) > 0;
-        const weightedOrStudentAvg = m.nota_final_ponderada ?? m.promedio_general;
-        const promedioMateria = hasStudentResponses && weightedOrStudentAvg != null
-            ? Number(Number(weightedOrStudentAvg).toFixed(2))
-            : 0.0;
+    // Preparar la data para el template (sin cálculos, solo mapeo directo)
+    const data = {
+    // ---- CAMPOS PLANOS (para evitar problemas) ----
+    aspectos_docente: aspectosEndpoint?.docente,
+    aspectos_escala_maxima: aspectosEndpoint?.escala_maxima,
+    aspectos_promedio_general: aspectosEndpoint?.evaluacion_estudiantes?.promedio_general,
+    aspectos_total_respuestas: aspectosEndpoint?.evaluacion_estudiantes?.total_respuestas,
+    aspectos_total_cmt: aspectosEndpoint?.evaluacion_estudiantes?.total_cmt,
+    aspectos_nota_final: aspectosEndpoint?.resultado_final?.nota_final_ponderada,
 
-        return {
-            codigo_materia: String(m.codigo_materia || ''),
-            nombre_materia: m.nombre_materia || String(m.codigo_materia || ''),
-            promedio_general: promedioMateria,
-            total_realizadas: Number(m.total_realizadas || 0)
-        };
-    });
+    materias_docente: materiasEndpoint?.docente,
+    materias_nombre_docente: materiasEndpoint?.nombre_docente,
 
-    const evaluacionEstudiantes = aspectData?.evaluacion_estudiantes || {};
-    const autoevaluacionDocente = aspectData?.autoevaluacion_docente || {};
-    const pesoEvaluacion = typeof evaluacionEstudiantes?.peso === 'number' ? evaluacionEstudiantes.peso : 0.8;
-    const pesoAutoevaluacion = typeof autoevaluacionDocente?.peso === 'number' ? autoevaluacionDocente.peso : 0.2;
+    informe_fecha: formatDate(Date.now()),
+    informe_fecha_hora: formatDateTimeBogota(Date.now()),
 
-    const evalAspectos = Array.isArray(evaluacionEstudiantes?.aspectos)
-        ? evaluacionEstudiantes.aspectos
-        : [];
-    const autoAspectos = Array.isArray(autoevaluacionDocente?.aspectos)
-        ? autoevaluacionDocente.aspectos
-        : [];
+    // ---- DEJAS ESTO TAL CUAL PARA LOOPS ----
+    aspectos_list: aspectosEndpoint?.evaluacion_estudiantes?.aspectos || [],
+    materias_list: materiasEndpoint?.materias || [],
+    eval_list: evalEndpoint || [],
+    };
 
-    const aspectSource = evalAspectos.length
-        ? evalAspectos
-        : (Array.isArray(metricsData?.aspectos) ? metricsData.aspectos : []);
+    // DEBUG: Mostrar la data final que se pasa al template
+    console.log('[DOCX REPORT DATA]', JSON.stringify(data, null, 2));
 
-    if (!aspectSource.length) {
-        throw new Error('No hay evaluaciones para este docente/materia');
-    }
-    
-    // Usar el nombre del docente recuperado o el ID
-    const docenteNombre = metricsData.docente_nombre || docente;
-    const docenteDocumento = metricsData.docente_id || docente || '';
-    const materiaSeleccionada = codigo_materia
-        ? materias.find(m => m.codigo_materia === String(codigo_materia))
-        : materias[0];
-    const asignaturaNombre = materiaSeleccionada?.nombre_materia || (codigo_materia ? String(codigo_materia) : '');
-    const asignaturaCodigo = materiaSeleccionada?.codigo_materia || (codigo_materia ? String(codigo_materia) : '');
-
-    // ================================
-    // 2. Preparar aspectos con formato para el reporte
-    // ================================
-    const aiConclusionByAspectId = new Map(
-        (Array.isArray(metricsData?.aspectos) ? metricsData.aspectos : [])
-            .filter((asp) => asp?.aspecto_id != null)
-            .map((asp) => [asp.aspecto_id, asp.conclusion || ''])
-    );
-
-    const autoAspectById = new Map(
-        autoAspectos
-            .filter((asp) => asp?.aspecto_id != null)
-            .map((asp) => [asp.aspecto_id, asp])
-    );
-
-    const allAspectIds = Array.from(new Set([
-        ...aspectSource.map((asp) => asp?.aspecto_id).filter((id) => id != null),
-        ...autoAspectos.map((asp) => asp?.aspecto_id).filter((id) => id != null)
-    ]));
-
-    const aspectById = new Map(
-        aspectSource
-            .filter((asp) => asp?.aspecto_id != null)
-            .map((asp) => [asp.aspecto_id, asp])
-    );
-
-    const aspectos = allAspectIds.map((aspectoId) => {
-        const evalAsp = aspectById.get(aspectoId) || {};
-        const autoAsp = autoAspectById.get(aspectoId) || {};
-
-        const promedioEval = typeof evalAsp.promedio === 'number' ? evalAsp.promedio : null;
-        const promedioAuto = typeof autoAsp.promedio === 'number' ? autoAsp.promedio : null;
-        const promedioPonderado = ((promedioEval ?? 0) * pesoEvaluacion) + ((promedioAuto ?? 0) * pesoAutoevaluacion);
-        const promedioEvalNum = Number((promedioEval ?? 0).toFixed(2));
-        const promedioAutoNum = Number((promedioAuto ?? 0).toFixed(2));
-        const promedioFinalNum = Number(promedioPonderado.toFixed(2));
-
-        return {
-            aspecto_id: aspectoId,
-            aspecto_nombre: evalAsp.nombre || autoAsp.nombre || `Aspecto ${aspectoId}`,
-            suma: evalAsp.suma || 0,
-            promedio: promedioFinalNum,
-            desviacion: evalAsp.desviacion != null ? Number(evalAsp.desviacion.toFixed(2)) : 0,
-            total_respuestas: evalAsp.total_respuestas || 0,
-            promedio_estudiantes: promedioEvalNum,
-            promedio_autoevaluacion: promedioAutoNum,
-            peso_evaluacion: Number(pesoEvaluacion.toFixed(2)),
-            peso_autoevaluacion: Number(pesoAutoevaluacion.toFixed(2)),
-            formula_aspecto: `${promedioEvalNum.toFixed(2)} x ${Number(pesoEvaluacion.toFixed(2)).toFixed(2)} + ${promedioAutoNum.toFixed(2)} x ${Number(pesoAutoevaluacion.toFixed(2)).toFixed(2)} = ${promedioFinalNum.toFixed(2)}`,
-            conclusion: aiConclusionByAspectId.get(aspectoId) || ''
-        };
-    });
-
-    // ================================
-    // 3. Usar métricas calculadas del repository
-    // ================================
-    const promedioGeneralSrc = aspectData?.resultado_final?.nota_final_ponderada
-        ?? aspectData?.evaluacion_estudiantes?.promedio_general;
-    const desviacionGeneralSrc = aspectData?.evaluacion_estudiantes?.desviacion;
-
-    const promedioGeneral = promedioGeneralSrc != null 
-        ? Number(promedioGeneralSrc.toFixed(2)) 
-        : 0;
-    const desviacionGeneral = desviacionGeneralSrc != null 
-        ? Number(desviacionGeneralSrc.toFixed(2)) 
-        : 0;
-    const porcentajeCumplimiento = metricsData.porcentaje_cumplimiento || 0;
-
-    // ================================
-    // 4. Obtener conclusiones, fortalezas y debilidades
-    // ================================
-    const mode = String(ai_mode || 'cached').toLowerCase();
-    const useAiConclusions = mode !== 'none';
-    const conclusionGen = useAiConclusions ? (metricsData.conclusion_gen || '') : '';
-    const fortalezas = useAiConclusions && Array.isArray(metricsData.fortalezas) ? metricsData.fortalezas : [];
-    const debilidades = useAiConclusions && Array.isArray(metricsData.debilidades) ? metricsData.debilidades : [];
-
-    // ================================
-    // 5. Cargar la plantilla DOCX
-    // ================================
+    // Cargar la plantilla DOCX
     const templatePath = path.resolve(__dirname, '../../templates/Carta_UniPutumayo.docx');
     const content = fs.readFileSync(templatePath, 'binary');
     const zip = new PizZip(content);
-
-    // Preparar módulo de imágenes
-    let imageModule = null;
-    let imageModulePresent = false;
-    try {
-        let ImageModule;
-        try {
-            ImageModule = require('docxtemplater-image-module-free');
-        } catch (e1) {
-            try {
-                ImageModule = require('docxtemplater-image-module');
-            } catch (e2) {
-                console.warn('[docx-report] No image module found:', e1.message);
-                throw e2;
-            }
-        }
-        imageModule = new ImageModule({
-            getImage: function(tagValue) {
-                if (Buffer.isBuffer(tagValue)) return tagValue;
-                if (typeof tagValue === 'string' && tagValue.startsWith('data:image/')) {
-                    const base64 = tagValue.split(',')[1];
-                    return Buffer.from(base64, 'base64');
-                }
-                return tagValue;
-            },
-            getSize: function() { return [666, 450]; },
-        });
-        imageModulePresent = true;
-    } catch (e) {
-        console.warn('[docx-report] Failed to prepare image module:', e.message);
-    }
-
     const doc = new Docxtemplater(zip, {
         paragraphLoop: true,
         linebreaks: true,
         delimiters: { start: '[[', end: ']]' },
-        modules: imageModulePresent ? [imageModule] : [],
     });
-
-    // ================================
-    // 6. Generar gráfica de barras
-    // ================================
-    let chartBuffer = null;
-    const labels = aspectos.map(a => a.aspecto_nombre);
-    const values = aspectos.map(a => a.promedio);
-    const chartConfiguration = {
-        type: 'bar',
-        data: {
-            labels,
-            datasets: [
-                {
-                    label: 'Promedio por aspecto',
-                    data: values,
-                    backgroundColor: '#1976d2',
-                },
-            ],
-        },
-        options: {
-            indexAxis: 'y',
-            responsive: false,
-            plugins: {
-                legend: { display: false },
-                title: { display: false },
-                tooltip: { enabled: true },
-            },
-            scales: {
-                x: { beginAtZero: true, suggestedMax: 2 },
-                y: { ticks: { maxRotation: 0, minRotation: 0 } },
-            },
-        },
-    };
-    
-    try {
-        const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
-        const width = 666;
-        const height = 450;
-        const chartJSNodeCanvas = new ChartJSNodeCanvas({ width, height, backgroundColour: 'white' });
-        chartBuffer = await chartJSNodeCanvas.renderToBuffer(chartConfiguration);
-    } catch (err) {
-        chartBuffer = null;
-    }
-
-    if (chartBuffer) {
-        try {
-            const outDir = path.resolve(process.cwd(), 'tmp');
-            if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
-            const outPath = path.join(outDir, 'chart.png');
-            fs.writeFileSync(outPath, chartBuffer);
-        } catch (e) {
-            console.warn('[docx-report] Failed to write chart.png:', e.message);
-        }
-    }
-
-    // ================================
-    // 7. Preparar datos para el DOCX
-    // ================================
-    
-    // Construir lista de contexto
-    const contexto_list = [];
-    if (sede) contexto_list.push({ label: 'Sede', value: sede });
-    if (periodo) contexto_list.push({ label: 'Período', value: periodo });
-    if (programa) contexto_list.push({ label: 'Programa', value: programa });
-    if (semestre) contexto_list.push({ label: 'Semestre', value: semestre });
-    if (grupo) contexto_list.push({ label: 'Grupo', value: grupo });
-    
-    const data = {
-        // Información básica
-        docente_nombre: docenteNombre,
-        docente_documento: docenteDocumento,
-        docente: docenteDocumento, // Para plantillas que usen [[docente]]
-        asignatura_nombre: asignaturaNombre,
-        asignatura_codigo: asignaturaCodigo,
-        materias,
-
-        // Fechas
-        informe_fecha: formatDate(Date.now()),
-        informe_fecha_hora: formatDateTimeBogota(Date.now()),
-
-        // Contexto
-        contexto_list,
-
-        // Gráfica
-        has_chart: Boolean(chartBuffer && imageModulePresent),
-        chart_image: (chartBuffer && imageModulePresent)
-            ? `data:image/png;base64,${chartBuffer.toString('base64')}`
-            : undefined,
-
-        // Métricas
-        promedio_general: promedioGeneral,
-        desviacion_general: desviacionGeneral,
-        porcentaje_cumplimiento: Number(porcentajeCumplimiento.toFixed(2)),
-        promedio_estudiantes_general: evaluacionEstudiantes?.promedio_general ?? 0,
-        promedio_autoevaluacion_general: autoevaluacionDocente?.promedio_general ?? 0,
-        nota_final_ponderada: aspectData?.resultado_final?.nota_final_ponderada ?? promedioGeneral,
-        peso_evaluacion_estudiantes: pesoEvaluacion,
-        peso_autoevaluacion_docente: pesoAutoevaluacion,
-        formula_nota_final: `${Number(evaluacionEstudiantes?.promedio_general ?? 0).toFixed(2)} x ${Number(pesoEvaluacion).toFixed(2)} + ${Number(autoevaluacionDocente?.promedio_general ?? 0).toFixed(2)} x ${Number(pesoAutoevaluacion).toFixed(2)} = ${Number(aspectData?.resultado_final?.nota_final_ponderada ?? promedioGeneral).toFixed(2)}`,
-
-        total_evaluaciones: metricsData.total_evaluaciones || 0,
-        total_realizadas: metricsData.total_realizadas || 0,
-        total_pendientes: metricsData.total_pendientes || 0,
-
-        // Aspectos con conclusión corregida
-        aspectos: aspectos.map(asp => ({
-            ...asp,
-            ai_conclusion: useAiConclusions ? (asp.conclusion || '') : ''
-        })),
-
-        // Conclusiones (nombres ajustados a plantilla)
-        ai_conclusion_general: conclusionGen,
-        ai_fortalezas_generales: fortalezas,
-        ai_debilidades_generales: debilidades,
-    };
 
     try {
         doc.render(data);
