@@ -391,53 +391,61 @@ async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, g
 		});
 	}
 
-	// ============================================================
-	// STEP 4: Apply pagination on docente list (DB efficient)
-	// ============================================================
 	const total = filteredDocentes.length;
 	const skip = (page - 1) * limit;
-	const paginatedDocentes = filteredDocentes.slice(skip, skip + limit);
+	const metricSortActive = Boolean(sort?.sortBy && sort?.sortBy !== 'nombre_docente' && sort?.sortOrder);
 
-	// ============================================================
-	// STEP 5: Calculate stats ONLY for docentes in current page
-	// This avoids N+1 for all docentes, only for this page
-	// ============================================================
-	const pageResults = [];
-	for (const docente of paginatedDocentes) {
-		const stats = await getDocenteStats({
-			cfg_t,
-			docente: docente.ID_DOCENTE,
-			sede,
-			periodo,
-			programa,
-			semestre,
-			grupo
-		});
-		pageResults.push(stats);
-	}
+	let data = [];
 
-	// ============================================================
-	// STEP 6: Apply metric-based sorting (promedio_general, etc)
-	// Only applied to current page data (small dataset)
-	// ============================================================
-	if (sort?.sortBy && sort?.sortBy !== 'nombre_docente' && sort?.sortOrder) {
+	if (metricSortActive) {
+		// For metric-based sorting, compute all matching docentes first,
+		// then sort globally and paginate to keep pages stable.
+		const allResults = [];
+		for (const docente of filteredDocentes) {
+			const stats = await getDocenteStats({
+				cfg_t,
+				docente: docente.ID_DOCENTE,
+				sede,
+				periodo,
+				programa,
+				semestre,
+				grupo
+			});
+			allResults.push(stats);
+		}
+
 		const { sortBy, sortOrder } = sort;
 		const order = sortOrder === 'desc' ? -1 : 1;
-		
-		pageResults.sort((a, b) => {
-			let aVal = a[sortBy];
-			let bVal = b[sortBy];
-			
-			// Handle null values
+		allResults.sort((a, b) => {
+			let aVal = a?.[sortBy];
+			let bVal = b?.[sortBy];
+
 			if (aVal == null) aVal = sortOrder === 'desc' ? -Infinity : Infinity;
 			if (bVal == null) bVal = sortOrder === 'desc' ? -Infinity : Infinity;
-			
+
 			return order * (Number(aVal) - Number(bVal));
 		});
+
+		data = allResults.slice(skip, skip + limit);
+	} else {
+		// For name sorting (already applied), paginate first then compute page stats.
+		const paginatedDocentes = filteredDocentes.slice(skip, skip + limit);
+		for (const docente of paginatedDocentes) {
+			const stats = await getDocenteStats({
+				cfg_t,
+				docente: docente.ID_DOCENTE,
+				sede,
+				periodo,
+				programa,
+				semestre,
+				grupo
+			});
+			data.push(stats);
+		}
 	}
 
 	return {
-		data: pageResults,
+		data,
 		pagination: {
 			page,
 			limit,
@@ -725,6 +733,11 @@ async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
 		return Math.max(min, Math.min(max, value));
 	}
 
+	function roundToTwo(value) {
+		if (typeof value !== 'number' || Number.isNaN(value)) return value;
+		return Number(value.toFixed(2));
+	}
+
 	const totalRespuestasPorDocente = docentesConRespuestas.map(d => d.total_respuestas);
 	const medianRaw = median(totalRespuestasPorDocente);
 	const m = clamp(medianRaw || 20, 10, 50);
@@ -744,7 +757,7 @@ async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
 		? participaciones.reduce((acc, p) => acc + p, 0) / participaciones.length
 		: 0;
 
-	const results = docentesConRespuestas.map((d) => {
+	const results = await Promise.all(docentesConRespuestas.map(async (d) => {
 		const promedioDocente = d.total_respuestas > 0 ? d.suma_puntajes / d.total_respuestas : 0;
 		const desviacion = d.total_respuestas > 0
 			? Math.sqrt(d.puntajes.reduce((acc, x) => acc + Math.pow(x - promedioDocente, 2), 0) / d.total_respuestas)
@@ -761,30 +774,42 @@ async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
 		const factorConfianza = Math.min(1, v / m);
 		const scoreRank = adjusted * factorParticipacion * factorConfianza;
 
+		// Get all stats from getDocenteStats
+		const docenteStats = await getDocenteStats({ cfg_t, docente: d.docente, sede, periodo, programa, semestre, grupo });
+		
+		// Get eval metrics from getDocenteAspectMetrics for this docente
+		const aspectMetrics = await getDocenteAspectMetrics({ cfg_t, docente: d.docente });
+		const evalData = {
+			total_respuestas: aspectMetrics?.evaluacion_estudiantes?.total_respuestas ?? v,
+			total_cmt: aspectMetrics?.evaluacion_estudiantes?.total_cmt ?? 0,
+			total_cmt_gen: aspectMetrics?.evaluacion_estudiantes?.total_cmt_gen ?? 0,
+			suma_cmt: aspectMetrics?.evaluacion_estudiantes?.suma_cmt ?? 0,
+			nota_final_ponderada: aspectMetrics?.resultado_final?.nota_final_ponderada ?? aspectMetrics?.evaluacion_estudiantes?.promedio_general ?? roundToTwo(promedioDocente)
+		};
+
 		return {
 			docente: d.docente,
 			nombre_docente: d.nombre_docente,
-			score_rank: scoreRank,
-			promedio_docente: promedioDocente,
-			promedio_evaluacion: promedioDocente,
-			adjusted,
-			total_respuestas: v,
-			participacion,
-			respuestas_unicas: respuestasUnicas,
+			total_evaluaciones: docenteStats?.total_evaluaciones ?? 0,
+			total_realizadas: docenteStats?.total_realizadas ?? 0,
+			total_pendientes: docenteStats?.total_pendientes ?? 0,
+			total_evaluaciones_registradas: docenteStats?.total_evaluaciones_registradas ?? 0,
+			total_estudiantes_registrados: docenteStats?.total_estudiantes_registrados ?? 0,
+			porcentaje_cumplimiento: docenteStats?.porcentaje_cumplimiento != null ? roundToTwo(docenteStats.porcentaje_cumplimiento) : 0,
+			score_rank: roundToTwo(scoreRank),
+			promedio_docente: roundToTwo(promedioDocente),
+			promedio_evaluacion: roundToTwo(promedioDocente),
+			adjusted: roundToTwo(adjusted),
 			universo: d.universo,
-			desviacion_estandar: desviacion,
-			comentarios: {
-				cmt_gen: d.comentarios_cmt_gen,
-				cmt: d.comentarios_cmt,
-				total: d.comentarios_cmt_gen + d.comentarios_cmt
-			},
+			desviacion_estandar: desviacion == null ? null : roundToTwo(desviacion),
+			eval: evalData,
 			factores: {
 				v,
 				m,
-				global_avg: globalAvg,
-				participacion_promedio: participacionPromedio,
-				factor_participacion: factorParticipacion,
-				factor_confianza: factorConfianza
+				global_avg: roundToTwo(globalAvg),
+				participacion_promedio: roundToTwo(participacionPromedio),
+				factor_participacion: roundToTwo(factorParticipacion),
+				factor_confianza: roundToTwo(factorConfianza)
 			},
 			calculo: {
 				promedio_docente: {
@@ -800,64 +825,82 @@ async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
 				}
 			}
 		};
-	});
+	}));
 
 	results.sort((a, b) => {
 		if (b.score_rank !== a.score_rank) return b.score_rank - a.score_rank;
-		if (b.participacion !== a.participacion) return b.participacion - a.participacion;
-		if (b.total_respuestas !== a.total_respuestas) return b.total_respuestas - a.total_respuestas;
+		const cmtA = a.eval?.suma_cmt ?? 0;
+		const cmtB = b.eval?.suma_cmt ?? 0;
+		if (cmtB !== cmtA) return cmtB - cmtA;
+		const respA = a.eval?.total_respuestas ?? 0;
+		const respB = b.eval?.total_respuestas ?? 0;
+		if (respB !== respA) return respB - respA;
 		const desvA = a.desviacion_estandar == null ? Number.POSITIVE_INFINITY : a.desviacion_estandar;
 		const desvB = b.desviacion_estandar == null ? Number.POSITIVE_INFINITY : b.desviacion_estandar;
 		return desvA - desvB;
 	});
 
-	const zeroResults = docentesSinRespuestas.map((d) => ({
-		docente: d.docente,
-		nombre_docente: d.nombre_docente,
-		score_rank: 0,
-		promedio_docente: 0,
-		promedio_evaluacion: 0,
-		adjusted: 0,
-		total_respuestas: 0,
-		participacion: 0,
-		respuestas_unicas: 0,
-		universo: d.universo,
-		desviacion_estandar: null,
-		comentarios: {
-			cmt_gen: d.comentarios_cmt_gen,
-			cmt: d.comentarios_cmt,
-			total: d.comentarios_cmt_gen + d.comentarios_cmt
-		},
-		factores: {
-			v: 0,
-			m,
-			global_avg: globalAvg,
-			participacion_promedio: participacionPromedio,
-			factor_participacion: 0,
-			factor_confianza: 0
-		},
-		calculo: {
-			promedio_docente: {
-				suma_puntajes: 0,
-				total_respuestas: 0,
-				formula: 'SUM(puntajes) / total_respuestas'
+	const zeroResults = await Promise.all(docentesSinRespuestas.map(async (d) => {
+		// Get all stats from getDocenteStats
+		const docenteStats = await getDocenteStats({ cfg_t, docente: d.docente, sede, periodo, programa, semestre, grupo });
+		
+		// Get eval metrics from getDocenteAspectMetrics for docentes sin respuestas
+		const aspectMetrics = await getDocenteAspectMetrics({ cfg_t, docente: d.docente });
+		const evalData = {
+			total_respuestas: aspectMetrics?.evaluacion_estudiantes?.total_respuestas ?? 0,
+			total_cmt: aspectMetrics?.evaluacion_estudiantes?.total_cmt ?? 0,
+			total_cmt_gen: aspectMetrics?.evaluacion_estudiantes?.total_cmt_gen ?? 0,
+			suma_cmt: aspectMetrics?.evaluacion_estudiantes?.suma_cmt ?? 0,
+			nota_final_ponderada: aspectMetrics?.resultado_final?.nota_final_ponderada ?? aspectMetrics?.evaluacion_estudiantes?.promedio_general ?? 0.00
+		};
+
+		return {
+			docente: d.docente,
+			nombre_docente: d.nombre_docente,
+			total_evaluaciones: docenteStats?.total_evaluaciones ?? 0,
+			total_realizadas: docenteStats?.total_realizadas ?? 0,
+			total_pendientes: docenteStats?.total_pendientes ?? 0,
+			total_evaluaciones_registradas: docenteStats?.total_evaluaciones_registradas ?? 0,
+			total_estudiantes_registrados: docenteStats?.total_estudiantes_registrados ?? 0,
+			porcentaje_cumplimiento: docenteStats?.porcentaje_cumplimiento != null ? roundToTwo(docenteStats.porcentaje_cumplimiento) : 0,
+			score_rank: 0.00,
+			promedio_docente: 0.00,
+			promedio_evaluacion: 0.00,
+			adjusted: 0.00,
+			universo: d.universo,
+			desviacion_estandar: null,
+			eval: evalData,
+			factores: {
+				v: 0,
+				m,
+				global_avg: roundToTwo(globalAvg),
+				participacion_promedio: roundToTwo(participacionPromedio),
+				factor_participacion: 0.00,
+				factor_confianza: 0.00
 			},
-			adjusted: {
-				formula: '(v/(v+m))*promedio_docente + (m/(v+m))*global_avg'
+			calculo: {
+				promedio_docente: {
+					suma_puntajes: 0,
+					total_respuestas: 0,
+					formula: 'SUM(puntajes) / total_respuestas'
+				},
+				adjusted: {
+					formula: '(v/(v+m))*promedio_docente + (m/(v+m))*global_avg'
+				},
+				score_rank: {
+					formula: 'adjusted * factor_participacion * factor_confianza'
+				}
 			},
-			score_rank: {
-				formula: 'adjusted * factor_participacion * factor_confianza'
-			}
-		},
-		sin_respuestas: true
+			sin_respuestas: true
+		};
 	}));
 
 	return {
 		ranking: [...results, ...zeroResults],
 		meta: {
 			m,
-			global_avg: globalAvg,
-			participacion_promedio: participacionPromedio,
+			global_avg: roundToTwo(globalAvg),
+			participacion_promedio: roundToTwo(participacionPromedio),
 			total_docentes: statsByDocente.size,
 			docentes_con_respuestas: docentesConRespuestas.length,
 			docentes_sin_respuestas: docentesSinRespuestas.length

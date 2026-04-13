@@ -898,79 +898,167 @@
  *         content:
  *           application/json:
  *             schema:
- *               oneOf:
- *                 - type: object
- *                   description: Cuando se especifica docente (respuesta simple)
- *                   properties:
- *                     docente:
- *                       type: string
- *                     nombre_docente:
- *                       type: string
- *                     promedio_general:
- *                       type: number
- *                     desviacion_general:
- *                       type: number
- *                     total_evaluaciones:
- *                       type: integer
- *                     total_realizadas:
- *                       type: integer
- *                     total_pendientes:
- *                       type: integer
- *                     total_evaluaciones_registradas:
- *                       type: integer
- *                     total_estudiantes_registrados:
- *                       type: integer
- *                     total_aspectos:
- *                       type: integer
- *                     porcentaje_cumplimiento:
- *                       type: number
- *                     suma:
- *                       type: number
- *                 - type: object
- *                   description: Cuando no se especifica docente (respuesta paginada)
- *                   properties:
- *                     data:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           docente:
- *                             type: string
- *                           nombre_docente:
- *                             type: string
- *                           promedio_general:
- *                             type: number
- *                           desviacion_general:
- *                             type: number
- *                           total_evaluaciones:
- *                             type: integer
- *                           total_realizadas:
- *                             type: integer
- *                           total_pendientes:
- *                             type: integer
- *                           total_evaluaciones_registradas:
- *                             type: integer
- *                           total_estudiantes_registrados:
- *                             type: integer
- *                           total_aspectos:
- *                             type: integer
- *                           porcentaje_cumplimiento:
- *                             type: number
- *                           suma:
- *                             type: number
- *                     pagination:
- *                       type: object
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   oneOf:
+ *                     - type: object
+ *                       description: Cuando se especifica docente (respuesta simple)
  *                       properties:
- *                         page:
+ *                         docente:
+ *                           type: string
+ *                         nombre_docente:
+ *                           type: string
+ *                         total_evaluaciones:
  *                           type: integer
- *                           example: 1
- *                         limit:
+ *                         total_realizadas:
  *                           type: integer
- *                           example: 10
- *                         total:
+ *                         total_pendientes:
  *                           type: integer
- *                           example: 25
- *                         pages:
+ *                         total_evaluaciones_registradas:
  *                           type: integer
- *                           example: 3
+ *                         total_estudiantes_registrados:
+ *                           type: integer
+ *                         porcentaje_cumplimiento:
+ *                           type: number
+ *                         eval:
+ *                           type: object
+ *                           properties:
+ *                             total_respuestas:
+ *                               type: integer
+ *                               nullable: true
+ *                             total_cmt:
+ *                               type: integer
+ *                               nullable: true
+ *                             total_cmt_gen:
+ *                               type: integer
+ *                               nullable: true
+ *                             suma_cmt:
+ *                               type: integer
+ *                               nullable: true
+ *                             nota_final_ponderada:
+ *                               type: number
+ *                               nullable: true
+ *                     - type: object
+ *                       description: Cuando no se especifica docente (respuesta paginada)
+ *                       properties:
+ *                         data:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               docente:
+ *                                 type: string
+ *                               nombre_docente:
+ *                                 type: string
+ *                               total_evaluaciones:
+ *                                 type: integer
+ *                               total_realizadas:
+ *                                 type: integer
+ *                               total_pendientes:
+ *                                 type: integer
+ *                               total_evaluaciones_registradas:
+ *                                 type: integer
+ *                               total_estudiantes_registrados:
+ *                                 type: integer
+ *                               porcentaje_cumplimiento:
+ *                                 type: number
+ *                               eval:
+ *                                 type: object
+ *                                 properties:
+ *                                   total_respuestas:
+ *                                     type: integer
+ *                                     nullable: true
+ *                                   total_cmt:
+ *                                     type: integer
+ *                                     nullable: true
+ *                                   total_cmt_gen:
+ *                                     type: integer
+ *                                     nullable: true
+ *                                   suma_cmt:
+ *                                     type: integer
+ *                                     nullable: true
+ *                                   nota_final_ponderada:
+ *                                     type: number
+ *                                     nullable: true
+ *                         pagination:
+ *                           type: object
+ *                           properties:
+ *                             page:
+ *                               type: integer
+ *                               example: 1
+ *                             limit:
+ *                               type: integer
+ *                               example: 10
+ *                             total:
+ *                               type: integer
+ *                               example: 42
+ *                             pages:
+ *                               type: integer
+ *                               example: 5
+ *             examples:
+ *               sinDocente:
+ *                 summary: Respuesta paginada sin parámetro docente
+ *                 value:
+ *                   success: true
+ *                   message: Estadísticas del dashboard obtenidas con éxito
+ *                   data:
+ *                     data:
+ *                       - docente: "DOC-0001"
+ *                         nombre_docente: "MARIA FERNANDA RUIZ"
+ *                         total_evaluaciones: 120
+ *                         total_realizadas: 34
+ *                         total_pendientes: 86
+ *                         total_evaluaciones_registradas: 34
+ *                         total_estudiantes_registrados: 34
+ *                         porcentaje_cumplimiento: 28.33
+ *                         eval:
+ *                           total_respuestas: 136
+ *                           total_cmt: 12
+ *                           total_cmt_gen: 3
+ *                           suma_cmt: 15
+ *                           nota_final_ponderada: 4.12
+ *                       - docente: "DOC-0002"
+ *                         nombre_docente: "CARLOS ANDRES PEREZ"
+ *                         total_evaluaciones: 80
+ *                         total_realizadas: 0
+ *                         total_pendientes: 80
+ *                         total_evaluaciones_registradas: 0
+ *                         total_estudiantes_registrados: 0
+ *                         porcentaje_cumplimiento: 0
+ *                         eval:
+ *                           total_respuestas: null
+ *                           total_cmt: null
+ *                           total_cmt_gen: null
+ *                           suma_cmt: null
+ *                           nota_final_ponderada: null
+ *                     pagination:
+ *                       page: 1
+ *                       limit: 10
+ *                       total: 42
+ *                       pages: 5
+ *               conDocente:
+ *                 summary: Respuesta para un docente específico
+ *                 value:
+ *                   success: true
+ *                   message: Estadísticas del dashboard obtenidas con éxito
+ *                   data:
+ *                     docente: "DOC-0001"
+ *                     nombre_docente: "MARIA FERNANDA RUIZ"
+ *                     total_evaluaciones: 120
+ *                     total_realizadas: 34
+ *                     total_pendientes: 86
+ *                     total_evaluaciones_registradas: 34
+ *                     total_estudiantes_registrados: 34
+ *                     porcentaje_cumplimiento: 28.33
+ *                     eval:
+ *                       total_respuestas: 136
+ *                       total_cmt: 12
+ *                       total_cmt_gen: 3
+ *                       suma_cmt: 15
+ *                       nota_final_ponderada: 4.12
  */
