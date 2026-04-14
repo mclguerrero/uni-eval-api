@@ -32,6 +32,25 @@ function getMostFrequent(values) {
 	return mostFrequent;
 }
 
+async function mapWithConcurrency(items, mapper, concurrency = 8) {
+	if (!Array.isArray(items) || items.length === 0) return [];
+	const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+	const results = new Array(items.length);
+	let nextIndex = 0;
+
+	async function worker() {
+		while (true) {
+			const current = nextIndex;
+			nextIndex += 1;
+			if (current >= items.length) return;
+			results[current] = await mapper(items[current], current);
+		}
+	}
+
+	await Promise.all(Array.from({ length: safeConcurrency }, () => worker()));
+	return results;
+}
+
 async function computeEvaluationMetricsFromVista(vista, cfgId) {
 	const estudiantesSet = new Set(vista.map(v => v.ID_ESTUDIANTE).filter(Boolean));
 	const docentesSet = new Set(vista.map(v => v.ID_DOCENTE).filter(Boolean));
@@ -400,19 +419,15 @@ async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, g
 	if (metricSortActive) {
 		// For metric-based sorting, compute all matching docentes first,
 		// then sort globally and paginate to keep pages stable.
-		const allResults = [];
-		for (const docente of filteredDocentes) {
-			const stats = await getDocenteStats({
-				cfg_t,
-				docente: docente.ID_DOCENTE,
-				sede,
-				periodo,
-				programa,
-				semestre,
-				grupo
-			});
-			allResults.push(stats);
-		}
+		const allResults = await mapWithConcurrency(filteredDocentes, (docente) => getDocenteStats({
+			cfg_t,
+			docente: docente.ID_DOCENTE,
+			sede,
+			periodo,
+			programa,
+			semestre,
+			grupo
+		}), 8);
 
 		const { sortBy, sortOrder } = sort;
 		const order = sortOrder === 'desc' ? -1 : 1;
@@ -430,18 +445,15 @@ async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, g
 	} else {
 		// For name sorting (already applied), paginate first then compute page stats.
 		const paginatedDocentes = filteredDocentes.slice(skip, skip + limit);
-		for (const docente of paginatedDocentes) {
-			const stats = await getDocenteStats({
-				cfg_t,
-				docente: docente.ID_DOCENTE,
-				sede,
-				periodo,
-				programa,
-				semestre,
-				grupo
-			});
-			data.push(stats);
-		}
+		data = await mapWithConcurrency(paginatedDocentes, (docente) => getDocenteStats({
+			cfg_t,
+			docente: docente.ID_DOCENTE,
+			sede,
+			periodo,
+			programa,
+			semestre,
+			grupo
+		}), 8);
 	}
 
 	return {

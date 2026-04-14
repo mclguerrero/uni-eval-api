@@ -65,6 +65,7 @@ async function evaluationSummaryByProgram(query) {
 
 async function docenteStats(query, search, sort) {
 	const { page, limit, ...filterQuery } = query;
+	const includeEval = String(filterQuery.include_eval ?? 'false').toLowerCase() === 'true';
 	if (!filterQuery.docente) {
         const allDocentes = await repo.getAllDocentesStats(
             { ...filterQuery, page: parseInt(page) || 1, limit: parseInt(limit) || 10 },
@@ -72,18 +73,39 @@ async function docenteStats(query, search, sort) {
             sort
         );
 
-        const data = await Promise.all((allDocentes?.data || []).map(async (item) => {
-            const aspectData = await repo.getDocenteAspectMetrics({
-                cfg_t: filterQuery.cfg_t,
-                docente: item?.docente,
-                sede: filterQuery.sede,
-                periodo: filterQuery.periodo,
-                programa: filterQuery.programa,
-                semestre: filterQuery.semestre,
-                grupo: filterQuery.grupo
-            });
+        const data = includeEval
+            ? await Promise.all((allDocentes?.data || []).map(async (item) => {
+                const aspectData = await repo.getDocenteAspectMetrics({
+                    cfg_t: filterQuery.cfg_t,
+                    docente: item?.docente,
+                    sede: filterQuery.sede,
+                    periodo: filterQuery.periodo,
+                    programa: filterQuery.programa,
+                    semestre: filterQuery.semestre,
+                    grupo: filterQuery.grupo
+                });
 
-            return {
+                return {
+                    docente: item?.docente,
+                    nombre_docente: item?.nombre_docente,
+                    total_evaluaciones: item?.total_evaluaciones ?? 0,
+                    total_realizadas: item?.total_realizadas ?? 0,
+                    total_pendientes: item?.total_pendientes ?? 0,
+                    total_evaluaciones_registradas: item?.total_evaluaciones_registradas ?? 0,
+                    total_estudiantes_registrados: item?.total_estudiantes_registrados ?? 0,
+                    porcentaje_cumplimiento: item?.porcentaje_cumplimiento != null
+                        ? Number(Number(item.porcentaje_cumplimiento).toFixed(2))
+                        : 0,
+                    eval: {
+                        total_respuestas: aspectData?.evaluacion_estudiantes?.total_respuestas ?? null,
+                        total_cmt: aspectData?.evaluacion_estudiantes?.total_cmt ?? null,
+                        total_cmt_gen: aspectData?.evaluacion_estudiantes?.total_cmt_gen ?? null,
+                        suma_cmt: aspectData?.evaluacion_estudiantes?.suma_cmt ?? null,
+                        nota_final_ponderada: aspectData?.resultado_final?.nota_final_ponderada ?? null
+                    }
+                };
+            }))
+            : (allDocentes?.data || []).map((item) => ({
                 docente: item?.docente,
                 nombre_docente: item?.nombre_docente,
                 total_evaluaciones: item?.total_evaluaciones ?? 0,
@@ -93,16 +115,8 @@ async function docenteStats(query, search, sort) {
                 total_estudiantes_registrados: item?.total_estudiantes_registrados ?? 0,
                 porcentaje_cumplimiento: item?.porcentaje_cumplimiento != null
                     ? Number(Number(item.porcentaje_cumplimiento).toFixed(2))
-                    : 0,
-                eval: {
-                    total_respuestas: aspectData?.evaluacion_estudiantes?.total_respuestas ?? null,
-                    total_cmt: aspectData?.evaluacion_estudiantes?.total_cmt ?? null,
-                    total_cmt_gen: aspectData?.evaluacion_estudiantes?.total_cmt_gen ?? null,
-                    suma_cmt: aspectData?.evaluacion_estudiantes?.suma_cmt ?? null,
-                    nota_final_ponderada: aspectData?.resultado_final?.nota_final_ponderada ?? null
-                }
-            };
-        }));
+                    : 0
+            }));
 
         return {
             data,
