@@ -5,6 +5,21 @@ const path = require('path');
 const fs = require('fs');
 const PizZip = require('pizzip');
 const Docxtemplater = require('docxtemplater');
+const ImageModule = require('docxtemplater-image-module-free');
+const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
+
+const aspectChartCanvas = new ChartJSNodeCanvas({
+    width: 1600,
+    height: 920,
+    backgroundColour: 'white'
+});
+
+const ASPECT_CHART_ORDER = [
+    'Evaluación justa',
+    'Puntualidad y asistencia',
+    'Metodología de enseñanza',
+    'Dominio del tema'
+];
 
 
 async function CfgId(cfgTId, search, sort) {
@@ -53,6 +68,232 @@ function formatDateTimeBogota(value) {
     const date = `${by.year}-${by.month}-${by.day}`;
     const time = `${by.hour}:${by.minute}:${by.second}`;
     return `${date} ${time}`;
+}
+
+function normalizeChartText(value) {
+    return String(value ?? '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+function toChartNumber(value) {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) return null;
+    return Number(numberValue.toFixed(2));
+}
+
+function resolvePromedioForDocx(item) {
+    const candidates = [
+        item?.promedio,
+        item?.eval?.nota_final_ponderada,
+        item?.eval?.promedio_general,
+        item?.promedio_general
+    ];
+
+    for (const candidate of candidates) {
+        const parsed = toChartNumber(candidate);
+        if (parsed != null) return parsed;
+    }
+
+    return 0;
+}
+
+function buildAspectChartBars(aspectos = []) {
+    const safeAspectos = Array.isArray(aspectos) ? aspectos : [];
+    const byName = new Map(
+        safeAspectos.map((item) => [
+            normalizeChartText(item?.nombre ?? item?.aspecto_nombre ?? item?.label),
+            item
+        ])
+    );
+
+    const orderedBars = ASPECT_CHART_ORDER.map((label) => {
+        const source = byName.get(normalizeChartText(label));
+        const value = toChartNumber(source?.promedio ?? source?.promedio_general ?? source?.value);
+        if (value == null) return null;
+        return { label, value };
+    }).filter(Boolean);
+
+    if (orderedBars.length) return orderedBars;
+
+    return safeAspectos
+        .map((item) => ({
+            label: String(item?.nombre ?? item?.aspecto_nombre ?? item?.label ?? '').trim(),
+            value: toChartNumber(item?.promedio ?? item?.promedio_general ?? item?.value)
+        }))
+        .filter((item) => item.label && item.value != null);
+}
+
+const aspectValueLabelsPlugin = {
+    id: 'aspectValueLabels',
+    afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        const dataset = chart.data.datasets?.[0];
+        if (!dataset) return;
+
+        ctx.save();
+        ctx.fillStyle = '#111827';
+        ctx.font = 'bold 28px Arial';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+
+        chart.getDatasetMeta(0).data.forEach((bar, index) => {
+            const rawValue = dataset.data?.[index];
+            if (rawValue == null) return;
+
+            const label = Number(rawValue).toFixed(2);
+            ctx.fillText(label, bar.x + 18, bar.y);
+        });
+
+        ctx.restore();
+    }
+};
+
+function dataURLToArrayBuffer(dataURL) {
+    const base64Regex = /^data:image\/(png|jpg|svg|svg\+xml);base64,/;
+    const stringBase64 = String(dataURL || '').replace(base64Regex, '');
+    let binaryString;
+
+    if (typeof window !== 'undefined') {
+        binaryString = window.atob(stringBase64);
+    } else {
+        binaryString = Buffer.from(stringBase64, 'base64').toString('binary');
+    }
+
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i += 1) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+}
+
+async function buildAspectBarChartImage(aspectos = []) {
+    const bars = buildAspectChartBars(aspectos);
+    if (!bars.length) return null;
+
+    const configuration = {
+        type: 'bar',
+        plugins: [aspectValueLabelsPlugin],
+        data: {
+            labels: bars.map((item) => item.label),
+            datasets: [{
+                label: 'Promedio por aspecto',
+                data: bars.map((item) => item.value),
+                backgroundColor: [
+                    'rgba(15, 118, 110, 0.92)',
+                    'rgba(59, 130, 246, 0.92)',
+                    'rgba(249, 115, 22, 0.92)',
+                    'rgba(168, 85, 247, 0.92)'
+                ],
+                borderColor: [
+                    'rgba(15, 118, 110, 1)',
+                    'rgba(59, 130, 246, 1)',
+                    'rgba(249, 115, 22, 1)',
+                    'rgba(168, 85, 247, 1)'
+                ],
+                borderWidth: 1,
+                borderRadius: 16,
+                barThickness: 56,
+                maxBarThickness: 62,
+                hoverBackgroundColor: [
+                    'rgba(15, 118, 110, 1)',
+                    'rgba(59, 130, 246, 1)',
+                    'rgba(249, 115, 22, 1)',
+                    'rgba(168, 85, 247, 1)'
+                ]
+            }]
+        },
+        options: {
+            responsive: false,
+            animation: false,
+            indexAxis: 'y',
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                },
+                title: {
+                    display: true,
+                    text: 'Resultados por aspecto',
+                    color: '#111827',
+                    font: {
+                        size: 36,
+                        weight: 'bold'
+                    },
+                    padding: {
+                        top: 8,
+                        bottom: 18
+                    }
+                },
+                subtitle: {
+                    display: true,
+                    text: 'Escala de 1 a 5. Valores mostrados al final de cada barra.',
+                    color: '#6B7280',
+                    font: {
+                        size: 20,
+                        weight: 'normal'
+                    },
+                    padding: {
+                        bottom: 16
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    min: 0,
+                    max: 5,
+                    ticks: {
+                        stepSize: 1,
+                        color: '#374151',
+                        font: {
+                            size: 20,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        color: 'rgba(148, 163, 184, 0.28)',
+                        lineWidth: 1
+                    },
+                    border: {
+                        color: '#CBD5E1'
+                    }
+                },
+                y: {
+                    ticks: {
+                        color: '#111827',
+                        font: {
+                            size: 26,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        display: false
+                    },
+                    border: {
+                        display: false
+                    }
+                }
+            },
+            layout: {
+                padding: {
+                    top: 18,
+                    right: 110,
+                    bottom: 20,
+                    left: 22
+                }
+            },
+            elements: {
+                bar: {
+                    borderSkipped: false
+                }
+            }
+        }
+    };
+
+    return aspectChartCanvas.renderToDataURL(configuration);
 }
 
 async function evaluationSummary(query) {
@@ -485,6 +726,32 @@ async function generateDocxReport({
     });
 
     const evalEndpoint = await CfgId(cfgId);
+    const chartAspectos = Array.isArray(aspectosEndpoint?.evaluacion_estudiantes?.aspectos)
+        ? aspectosEndpoint.evaluacion_estudiantes.aspectos
+        : [];
+    const chartImage = await buildAspectBarChartImage(chartAspectos);
+    const materiasList = (materiasEndpoint?.materias || []).map((materia) => ({
+        ...materia,
+        promedio: resolvePromedioForDocx(materia),
+        grupos: Array.isArray(materia?.grupos)
+            ? materia.grupos.map((grupoItem) => ({
+                ...grupoItem,
+                promedio: resolvePromedioForDocx(grupoItem)
+            }))
+            : materia?.grupos
+    }));
+
+    // DEBUG: Mostrar fuentes crudas que alimentan el mapeo del template
+    console.log('[DOCX REPORT SOURCES]', JSON.stringify({
+        aspectosEndpoint,
+        materiasEndpoint,
+        evalEndpoint
+    }, null, 2));
+
+    console.log('[DOCX REPORT CHART]', JSON.stringify({
+        hasChart: Boolean(chartImage),
+        bars: buildAspectChartBars(chartAspectos)
+    }, null, 2));
 
     // Preparar la data para el template (sin cálculos, solo mapeo directo)
     const data = {
@@ -501,10 +768,12 @@ async function generateDocxReport({
 
     informe_fecha: formatDate(Date.now()),
     informe_fecha_hora: formatDateTimeBogota(Date.now()),
+    has_chart: Boolean(chartImage),
+    chart_image: chartImage,
 
     // ---- DEJAS ESTO TAL CUAL PARA LOOPS ----
     aspectos_list: aspectosEndpoint?.evaluacion_estudiantes?.aspectos || [],
-    materias_list: materiasEndpoint?.materias || [],
+    materias_list: materiasList,
     eval_list: evalEndpoint || [],
     };
 
@@ -515,14 +784,29 @@ async function generateDocxReport({
     const templatePath = path.resolve(__dirname, '../../templates/Carta_UniPutumayo.docx');
     const content = fs.readFileSync(templatePath, 'binary');
     const zip = new PizZip(content);
-    const doc = new Docxtemplater(zip, {
-        paragraphLoop: true,
-        linebreaks: true,
-        delimiters: { start: '[[', end: ']]' },
+    const imageModule = new ImageModule({
+        centered: true,
+        getImage(tagValue) {
+            return dataURLToArrayBuffer(tagValue);
+        },
+        getSize() {
+            return [700, 400];
+        }
     });
 
+    const doc = new Docxtemplater()
+        .attachModule(imageModule)
+        .loadZip(zip)
+        .setOptions({
+            paragraphLoop: true,
+            linebreaks: true,
+            delimiters: { start: '[[', end: ']]' },
+        });
+
+    doc.setData(data);
+
     try {
-        doc.render(data);
+        doc.render();
     } catch (e) {
         const explanation = e.properties?.explanation || e.message;
         throw new Error(`Error en plantilla DOCX: ${explanation}`);
