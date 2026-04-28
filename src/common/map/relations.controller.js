@@ -1,6 +1,6 @@
 const { prisma } = require('@config/prisma');
 const { extractSchemaFromPrisma } = require('../extractSchemaPrisma');
-const { successResponse } = require('@utils/responseHandler');
+const { successResponse, successPaginatedResponse } = require('@utils/responseHandler');
 const MESSAGES = require('@constants/messages');
 
 function createRelationsController(config) {
@@ -11,7 +11,9 @@ function createRelationsController(config) {
     categoryIdField,
     itemIdField,
     itemSchemaName,
-    itemOutputFields
+    itemOutputFields,
+    searchFields = [],
+    sortableFields = []
   } = config;
 
   // Derivar automáticamente los campos del ITEM desde Prisma si se provee itemSchemaName
@@ -36,6 +38,15 @@ function createRelationsController(config) {
         'fecha_actualizacion'
       ]);
 
+  const defaultSearchFields = Array.isArray(searchFields) && searchFields.length
+    ? searchFields
+    : ['nombre', 'descripcion', 'sigla'].filter(field => outputFields.includes(field));
+
+  const defaultSortableFields = Array.isArray(sortableFields) && sortableFields.length
+    ? sortableFields
+    : ['id', 'nombre', 'descripcion', 'sigla', 'fecha_creacion', 'fecha_actualizacion']
+      .filter(field => outputFields.includes(field) || field === 'id');
+
   // -----------------------------------------
   // GET /:id/items
   // -----------------------------------------
@@ -49,10 +60,72 @@ function createRelationsController(config) {
         };
       }
 
-      const mappings = await prisma[mapModel].findMany({
-        where: { [categoryIdField]: categoriaId },
-        include: { [itemModel]: true }
-      });
+      const pagination = req.pagination;
+      const hasPagination = pagination
+        && Number.isFinite(pagination.page)
+        && Number.isFinite(pagination.limit)
+        && Number.isFinite(pagination.skip);
+
+      const rawSortBy = req.sort && req.sort.sortBy ? req.sort.sortBy : 'id';
+      const sortOrder = req.sort && req.sort.sortOrder === 'asc' ? 'asc' : 'desc';
+      const allowedSortFields = new Set(['id', 'map_id', ...defaultSortableFields]);
+      const sortBy = allowedSortFields.has(rawSortBy) ? rawSortBy : 'id';
+
+      const activeSearchFields = Array.isArray(req.search && req.search.fields) && req.search.fields.length
+        ? req.search.fields.filter(field => defaultSearchFields.includes(field))
+        : defaultSearchFields;
+
+      const where = { [categoryIdField]: categoriaId };
+
+      if (req.search && req.search.isActive && req.search.term && activeSearchFields.length) {
+        const mode = req.search.caseSensitive ? undefined : 'insensitive';
+        const searchMode = req.search.mode || 'startsWith';
+
+        const buildFilter = (field) => {
+          if (searchMode === 'equals') {
+            return { [field]: req.search.term };
+          }
+
+          if (searchMode === 'contains') {
+            return { [field]: { contains: req.search.term, ...(mode ? { mode } : {}) } };
+          }
+
+          return { [field]: { startsWith: req.search.term, ...(mode ? { mode } : {}) } };
+        };
+
+        where[itemModel] = {
+          is: {
+            OR: activeSearchFields.map(buildFilter)
+          }
+        };
+      }
+
+      const orderBy = [];
+
+      if (sortBy === 'map_id') {
+        orderBy.push({ id: sortOrder });
+      } else {
+        orderBy.push({ [itemModel]: { [sortBy]: sortOrder } });
+      }
+
+      if (!(sortBy === 'id' && sortOrder === 'desc')) {
+        orderBy.push({ [itemModel]: { id: 'desc' } });
+      }
+
+      const baseQuery = {
+        where,
+        include: { [itemModel]: true },
+        orderBy
+      };
+
+      const dataQuery = hasPagination
+        ? { ...baseQuery, skip: pagination.skip, take: pagination.limit }
+        : baseQuery;
+
+      const [mappings, total] = await Promise.all([
+        prisma[mapModel].findMany(dataQuery),
+        prisma[mapModel].count({ where })
+      ]);
 
       const items = mappings.map(m => {
         const a = m[itemModel];
@@ -60,6 +133,22 @@ function createRelationsController(config) {
         outputFields.forEach(f => { out[f] = a[f]; });
         return out;
       });
+
+      if (hasPagination) {
+        const pages = Math.ceil(total / pagination.limit) || 1;
+        return successPaginatedResponse(res, {
+          message: MESSAGES.GENERAL.SUCCESS.FETCH_SUCCESS,
+          data: { categoria_id: categoriaId, items },
+          pagination: {
+            page: pagination.page,
+            limit: pagination.limit,
+            total,
+            pages,
+            hasNext: pagination.page < pages,
+            hasPrev: pagination.page > 1,
+          }
+        });
+      }
 
       return successResponse(res, {
         message: MESSAGES.GENERAL.SUCCESS.FETCH_SUCCESS,
@@ -126,6 +215,12 @@ function createRelationsController(config) {
         };
       }
 
+      const normalizedItems = itemData.map((item) => {
+        if (typeof item === 'number') return { id: item };
+        if (item && typeof item === 'object' && typeof item.id === 'number') return item;
+        return item;
+      });
+
       const transaction = await prisma.$transaction(async (tx) => {
         let category;
 
@@ -155,8 +250,8 @@ function createRelationsController(config) {
         }
 
         // --- Procesar ítems ---
-        const itemPromises = itemData.map(async (item) => {
-          if (item.id) {
+        const itemPromises = normalizedItems.map(async (item) => {
+          if (item && typeof item.id === 'number') {
             const existingItem = await tx[itemModel].findUnique({
               where: { id: item.id }
             });
@@ -174,7 +269,7 @@ function createRelationsController(config) {
               }
             });
           } else {
-            if (!item.nombre) {
+            if (!item || !item.nombre) {
               throw {
                 status: 400,
                 message: 'Cada elemento nuevo requiere el campo "nombre".'

@@ -11,11 +11,49 @@ class BaseRepository {
     return this.model.findMany();
   }
 
-  async findPaginated({ skip = 0, limit = 10 } = {}) {
+  async findPaginated({ skip = 0, limit = 10, sort = null, search = null } = {}) {
+    const findOptions = { skip, take: limit };
+
+    // Procesar búsqueda (search)
+    if (search && search.isActive && search.term) {
+      const searchFields = search.fields && Array.isArray(search.fields) && search.fields.length > 0
+        ? search.fields
+        : []; // Si no hay campos específicos, se puede extender aquí
+
+      if (searchFields.length > 0) {
+        const mode = search.caseSensitive ? undefined : 'insensitive';
+        const searchMode = search.mode || 'startsWith';
+        const buildFilter = (field) => {
+          if (searchMode === 'equals') {
+            return { [field]: search.term };
+          }
+          if (searchMode === 'contains') {
+            return { [field]: { contains: search.term, ...(mode ? { mode } : {}) } };
+          }
+          // Default to startsWith for better index usage
+          return { [field]: { startsWith: search.term, ...(mode ? { mode } : {}) } };
+        };
+        findOptions.where = {
+          OR: searchFields.map(buildFilter)
+        };
+      }
+    }
+
+    // Procesar orden (sort)
+    if (sort && sort.sortBy) {
+      findOptions.orderBy = {
+        [sort.sortBy]: sort.sortOrder === 'desc' ? 'desc' : 'asc'
+      };
+    } else if (skip || limit) {
+      // Ensure stable pagination if no sort was provided
+      findOptions.orderBy = { id: 'asc' };
+    }
+
     const [items, total] = await Promise.all([
-      this.model.findMany({ skip, take: limit }),
-      this.model.count(),
+      this.model.findMany(findOptions),
+      this.model.count(findOptions.where ? { where: findOptions.where } : undefined),
     ]);
+
     return { items, total };
   }
 

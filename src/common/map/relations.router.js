@@ -1,12 +1,15 @@
 const express = require('express');
 const { createRelationsController } = require('./relations.controller');
 const { globalRoles: defaultRoles, globalMiddlewares: defaultMiddlewares } = require('@middlewares/auth.rol.global');
-const { requireRoles } = require('@middlewares/auth.middleware');
+const { requireAppRoles } = require('@middlewares/auth.middleware');
+const pagination = require('@middlewares/http/pagination');
+const sort = require('@middlewares/http/sort');
+const search = require('@middlewares/http/search');
 
 function buildRoleMiddlewares(globalRoles = [], routeRoles = []) {
   const roles = [...globalRoles, ...routeRoles].filter(Boolean);
   if (!roles.length) return [];
-  return requireRoles(roles);
+  return requireAppRoles(roles);
 }
 
 function createRelationsRouter(config) {
@@ -22,7 +25,26 @@ function createRelationsRouter(config) {
     middlewares = {},
     roles = {},
     protectedOperations = ['remove', 'createMap'],
+    searchFields = [],
+    searchOptions = {},
+    sortOptions = {},
+    paginationOptions = {},
   } = config;
+
+  const resolvedSortFields = Array.isArray(sortOptions.allowedFields)
+    ? sortOptions.allowedFields
+    : [];
+
+  const listMiddlewares = [
+    pagination({ maxLimit: 100, ...paginationOptions }),
+    sort({
+      defaultSortBy: 'id',
+      defaultSortOrder: 'desc',
+      ...sortOptions,
+      allowedFields: resolvedSortFields,
+    }),
+    search({ searchFields, ...searchOptions }),
+  ];
 
   // Aplica middlewares globales
   if (globalMiddlewares.length) {
@@ -44,6 +66,7 @@ function createRelationsRouter(config) {
   // --- RUTAS ---
   router.get(
     `/:id/${itemPluralPath}`,
+    ...listMiddlewares,
     ...mw('list'),
     (req, res) => ctrl.listItems(req, res)
   );

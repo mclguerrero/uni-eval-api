@@ -32,6 +32,9 @@ function ensureAuth(req, res, next) {
       roles = [],
       rolesAuth = [],
       rolesApp = [],
+      rolesIds = [],
+      rolesAuthIds = [],
+      rolesAppIds = [],
       status,
       user_statusid
     } = decoded;
@@ -42,6 +45,9 @@ function ensureAuth(req, res, next) {
       roles,
       rolesAuth,
       rolesApp,
+      rolesIds,
+      rolesAuthIds,
+      rolesAppIds,
       status: status ?? user_statusid,
       fromToken: true
     };
@@ -54,27 +60,45 @@ function ensureAuth(req, res, next) {
   }
 }
 
-function requireRoles(...required) {
-  const flatRequired = required.flat().filter(Boolean);
+function hasGlobalRole(user) {
+  // Importación diferida para evitar dependencia circular
+  const { globalRoles } = require('./auth.rol.global');
+  
+  const appIds = new Set((user?.rolesAppIds || []).map(String));
+  return Array.isArray(globalRoles) && globalRoles.some(roleId => appIds.has(String(roleId)));
+}
+
+function normalizeRequired(required) {
+  const ids = new Set();
+  const names = new Set();
+
+  required.flat().filter(Boolean).forEach(r => {
+    if (typeof r === 'number') ids.add(String(r));
+    else if (!Number.isNaN(Number(r)) && r !== '') ids.add(String(r));
+    else if (typeof r === 'string') names.add(r);
+  });
+
+  return { ids, names };
+}
+
+function requireAppRoles(...required) {
+  const { ids, names } = normalizeRequired(required);
 
   return [
     ensureAuth,
     (req, res, next) => {
       try {
-        const allUserRoles = new Set([
-          ...(req.user?.rolesAuth || []),
-          ...(req.user?.rolesApp || []),
-          ...(req.user?.roles || [])
-        ]);
+        // Verificar rol global primero
+        if (hasGlobalRole(req.user)) return next();
 
-        if (allUserRoles.size === 0)
-          throw new AppError('Usuario sin roles asignados', 403);
+        const appIds = new Set((req.user?.rolesAppIds || []).map(String));
 
-        const hasRole =
-          flatRequired.length > 0 &&
-          flatRequired.some(role => allUserRoles.has(role));
+        if (appIds.size === 0)
+          throw new AppError('Usuario sin roles de aplicación asignados', 403);
 
-        if (!hasRole)
+        const matchId = ids.size === 0 ? false : Array.from(ids).some(id => appIds.has(id));
+
+        if (!matchId)
           throw new AppError('No tienes permiso para acceder a este recurso', 403);
 
         next();
@@ -85,4 +109,86 @@ function requireRoles(...required) {
   ];
 }
 
-module.exports = { ensureAuth, requireRoles };
+function requireAuthRoles(...required) {
+  const { ids, names } = normalizeRequired(required);
+
+  return [
+    ensureAuth,
+    (req, res, next) => {
+      try {
+        // Verificar rol global primero
+        if (hasGlobalRole(req.user)) return next();
+
+        const authIds = new Set((req.user?.rolesAuthIds || []).map(String));
+
+        if (authIds.size === 0)
+          throw new AppError('Usuario sin roles de autenticación asignados', 403);
+
+        const matchId = ids.size === 0 ? false : Array.from(ids).some(id => authIds.has(id));
+
+        if (!matchId)
+          throw new AppError('No tienes permiso para acceder a este recurso', 403);
+
+        next();
+      } catch (err) {
+        next(err);
+      }
+    }
+  ];
+}
+
+function requireRoles(rolesConfig) {
+  // Soporta: [{ type: 'auth', values: [1] }, { type: 'app', values: [5, 10] }]
+  // O formato legacy: { type: 'auth', values: [10] }
+  
+  return [
+    ensureAuth,
+    (req, res, next) => {
+      try {
+        // Verificar rol global primero
+        if (hasGlobalRole(req.user)) return next();
+
+        // Normalizar configuración a array
+        const configs = Array.isArray(rolesConfig) ? rolesConfig : [rolesConfig];
+        
+        let hasAccess = false;
+
+        for (const config of configs) {
+          const { type, values } = config;
+          
+          if (!type || !values || !Array.isArray(values)) continue;
+
+          const userIds = type === 'auth' 
+            ? new Set((req.user?.rolesAuthIds || []).map(String))
+            : new Set((req.user?.rolesAppIds || []).map(String));
+
+          // Verificar si alguno de los valores requeridos está en los roles del usuario
+          const match = values.some(val => userIds.has(String(val)));
+          
+          if (match) {
+            hasAccess = true;
+            break;
+          }
+        }
+
+        if (!hasAccess)
+          throw new AppError('No tienes permiso para acceder a este recurso', 403);
+
+        next();
+      } catch (err) {
+        next(err);
+      }
+    }
+  ];
+}
+
+function requireGlobalRole(req, res, next) {
+  try {
+    if (hasGlobalRole(req.user)) return next();
+    throw new AppError('No tienes permiso para acceder a este recurso', 403);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { ensureAuth, requireAppRoles, requireAuthRoles, requireRoles, requireGlobalRole, hasGlobalRole };

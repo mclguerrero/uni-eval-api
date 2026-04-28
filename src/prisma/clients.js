@@ -5,7 +5,7 @@
 // The previous relative paths pointed one level up incorrectly (../prisma/*) causing module resolution errors.
 const { PrismaClient: LocalPrismaClient } = require('./local');
 const { PrismaClient: AuthPrismaClient } = require('./auth');
-const { PrismaClient: UserPrismaClient } = require('./user'); 
+const { PrismaClient: UserPrismaClient } = require('./user');
 
 // Helper to wrap a Prisma client and block mutating operations
 function makeReadOnly(prisma, label) {
@@ -43,15 +43,16 @@ function makeReadOnly(prisma, label) {
 const localPrisma = new LocalPrismaClient();
 const authPrisma = makeReadOnly(new AuthPrismaClient(), 'AUTH');
 const userPrisma = makeReadOnly(new UserPrismaClient(), 'USER'); 
+// No metric client needed at this time
 
 module.exports = {
   localPrisma,
   authPrisma,
-  userPrisma, // Export actualizado
+  userPrisma,
   // Helper to gracefully close all connections (e.g., on process shutdown)
   disconnectAll: () => Promise.all([
     localPrisma.$disconnect(),
     authPrisma.$disconnect(),
-    userPrisma.$disconnect() 
+    userPrisma.$disconnect()
   ])
 };

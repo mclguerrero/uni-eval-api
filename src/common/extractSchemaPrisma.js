@@ -44,7 +44,7 @@ function extractSchemaFromPrisma(modelName) {
       case 'Int': type = 'integer'; format = 'int32'; break;
       case 'BigInt': type = 'integer'; format = 'int64'; break;
       case 'Float': type = 'number'; format = 'float'; break;
-      case 'Decimal': type = 'string'; format = 'decimal'; break;
+      case 'Decimal': type = 'number'; format = 'decimal'; break;
       case 'Boolean': type = 'boolean'; break;
       case 'DateTime': type = 'string'; format = 'date-time'; break;
       case 'Json': type = 'object'; break;

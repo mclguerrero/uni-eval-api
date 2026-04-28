@@ -88,6 +88,41 @@ function buildRelationsDocs(options) {
             schema: { type: 'integer' },
             description: 'ID de la categoría',
           },
+          {
+            in: 'query',
+            name: 'page',
+            required: false,
+            schema: { type: 'integer', minimum: 1, default: 1 },
+            description: 'Página a consultar',
+          },
+          {
+            in: 'query',
+            name: 'limit',
+            required: false,
+            schema: { type: 'integer', minimum: 1, maximum: 100, default: 10 },
+            description: 'Cantidad de registros por página',
+          },
+          {
+            in: 'query',
+            name: 'sortBy',
+            required: false,
+            schema: { type: 'string', default: 'id' },
+            description: 'Campo por el cual ordenar',
+          },
+          {
+            in: 'query',
+            name: 'sortOrder',
+            required: false,
+            schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
+            description: 'Dirección de ordenamiento',
+          },
+          {
+            in: 'query',
+            name: 'search',
+            required: false,
+            schema: { type: 'string' },
+            description: 'Término de búsqueda (alias compatible: q)',
+          },
         ],
         responses: {
           200: {
@@ -98,6 +133,7 @@ function buildRelationsDocs(options) {
                   type: 'object',
                   properties: {
                     success: { type: 'boolean' },
+                    message: { type: 'string' },
                     data: {
                       type: 'object',
                       properties: {
@@ -106,6 +142,17 @@ function buildRelationsDocs(options) {
                           type: 'array',
                           items: { $ref: `#/components/schemas/${itemSchemaName}` },
                         },
+                      },
+                    },
+                    pagination: {
+                      type: 'object',
+                      properties: {
+                        page: { type: 'integer' },
+                        limit: { type: 'integer' },
+                        total: { type: 'integer' },
+                        pages: { type: 'integer' },
+                        hasNext: { type: 'boolean' },
+                        hasPrev: { type: 'boolean' },
                       },
                     },
                   },
@@ -161,13 +208,23 @@ function buildRelationsDocs(options) {
                   categoryData: {
                     type: 'object',
                     properties: {
+                      id: { type: 'integer' },
                       nombre: { type: 'string' },
                       descripcion: { type: 'string' },
                     },
                   },
                   itemData: {
                     type: 'array',
-                    items: { $ref: `#/components/schemas/Create${itemSchemaName}Input` }
+                    items: {
+                      oneOf: [
+                        { type: 'integer' },
+                        { $ref: `#/components/schemas/Create${itemSchemaName}Input` },
+                        {
+                          type: 'object',
+                          properties: { id: { type: 'integer' } }
+                        }
+                      ]
+                    }
                   },
                 },
               },

@@ -88,7 +88,7 @@ module.exports = {
   DASHBOARD: {
     SUCCESS: {
       FETCH_STATS: 'Estadísticas del dashboard obtenidas con éxito',
-      FETCH_ASPECTOS: 'Promedios por aspecto obtenidos con éxito',
+      FETCH_ASPECTOS: 'Evaluación, autoevaluación y nota final ponderada obtenidas con éxito',
       FETCH_RANKING: 'Ranking de docentes obtenido con éxito',
       FETCH_PODIO: 'Podio de docentes obtenido con éxito',
     },

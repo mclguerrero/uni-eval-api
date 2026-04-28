@@ -1,0 +1,71 @@
+const { prisma } = require('@config/prisma');
+
+class EvalDetRepository {
+	async getGeneralCommentFlags(evalId) {
+		const row = await prisma.eval.findUnique({
+			where: { id: evalId },
+			select: {
+				id: true,
+				id_configuracion: true,
+				cfg_t: { select: { es_cmt_gen: true, es_cmt_gen_oblig: true } }
+			}
+		});
+		return row?.cfg_t || { es_cmt_gen: false, es_cmt_gen_oblig: false };
+	}
+	async getAEFlagsByIds(aeIds) {
+		if (!aeIds.length) return [];
+		return prisma.a_e.findMany({
+			where: { id: { in: aeIds } },
+			select: { id: true, es_cmt: true, es_cmt_oblig: true }
+		});
+	}
+
+	async hasExistingDetails(evalId) {
+		const count = await prisma.eval_det.count({
+			where: { eval_id: evalId }
+		});
+		return count > 0;
+	}
+
+	async createMany(evalId, items, cmtGen) {
+		if (!items.length) return { count: 0 };
+		return prisma.$transaction(async (tx) => {
+			if (typeof cmtGen !== 'undefined') {
+				await tx.eval.update({ where: { id: evalId }, data: { cmt_gen: cmtGen ?? null } });
+			}
+			return tx.eval_det.createMany({
+				data: items.map(it => ({ eval_id: evalId, a_e_id: it.a_e_id, cmt: it.cmt ?? null }))
+			});
+		});
+	}
+
+	async getExistingItemComments(aeIds) {
+		if (!aeIds.length) return [];
+		return prisma.eval_det.findMany({
+			where: { 
+				a_e_id: { in: aeIds },
+				cmt: { not: null }
+			},
+			select: { a_e_id: true, cmt: true }
+		});
+	}
+
+	async getExistingGeneralComments(evalId) {
+		const currentEval = await prisma.eval.findUnique({
+			where: { id: evalId },
+			select: { id_configuracion: true }
+		});
+
+		if (!currentEval) return [];
+
+		return prisma.eval.findMany({
+			where: { 
+				id_configuracion: currentEval.id_configuracion,
+				cmt_gen: { not: null }
+			},
+			select: { id: true, cmt_gen: true }
+		});
+	}
+}
+
+module.exports = EvalDetRepository;

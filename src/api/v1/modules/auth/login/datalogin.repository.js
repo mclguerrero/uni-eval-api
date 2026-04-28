@@ -1,10 +1,13 @@
 const { authPrisma, localPrisma } = require('@config/prisma');
+const crypto = require('crypto');
 
 class DataloginRepository {
   constructor() {
     this.model = authPrisma.datalogin;
+    this.refreshModel = localPrisma.rfh_tkn;
   }
 
+  // ---- Auth users (remote) ----
   findAll() {
     return this.model.findMany();
   }
@@ -26,8 +29,92 @@ class DataloginRepository {
       where: { user_id },
       include: { rol: true }
     });
-    const roles = userRoles.map(r => r.rol?.nombre).filter(Boolean);
-    return Array.from(new Set(roles));
+
+    const seen = new Set();
+    const roles = [];
+
+    for (const r of userRoles) {
+      const id = r?.rol?.id;
+      const name = r?.rol?.nombre;
+      if (!id || !name) continue;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      roles.push({ id, name });
+    }
+
+    return roles;
+  }
+
+  // Get programs for a user through user_rol -> user_prog -> prog
+  async findProgramsByUserId(user_id) {
+    const userRoles = await localPrisma.user_rol.findMany({
+      where: { user_id },
+      include: {
+        user_prog: {
+          include: {
+            prog: true
+          }
+        }
+      }
+    });
+
+    const seenProgs = new Map();
+
+    for (const userRole of userRoles) {
+      if (!userRole.user_prog) continue;
+      for (const userProg of userRole.user_prog) {
+        const prog = userProg?.prog;
+        if (!prog?.id || !prog?.nombre) continue;
+        if (seenProgs.has(prog.id)) continue;
+        seenProgs.set(prog.id, { id: prog.id, nombre: prog.nombre });
+      }
+    }
+
+    return Array.from(seenProgs.values());
+  }
+
+  // ---- Refresh token helpers ----
+  hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+  }
+
+  async revokeByUser(user_id) {
+    await this.refreshModel.updateMany({
+      where: { user_id, es_revocado: false },
+      data: { es_revocado: true }
+    });
+  }
+
+  async upsertRefreshToken({ user_id, jti, tokenHash, fecha_expiracion }) {
+    // Ensure single active session: revoke all existing
+    await this.revokeByUser(user_id);
+    // Create new token row
+    return this.refreshModel.create({
+      data: {
+        user_id,
+        jti,
+        token: tokenHash,
+        fecha_expiracion,
+        es_revocado: false
+      }
+    });
+  }
+
+  async findActiveByUser(user_id) {
+    return this.refreshModel.findFirst({
+      where: { user_id, es_revocado: false }
+    });
+  }
+
+  async findByJti(jti) {
+    return this.refreshModel.findUnique({ where: { jti } });
+  }
+
+  async revokeByJti(jti) {
+    return this.refreshModel.update({
+      where: { jti },
+      data: { es_revocado: true }
+    });
   }
 }
 

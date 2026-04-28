@@ -1,0 +1,86 @@
+services:
+  mysql-local:
+    image: mysql:8
+    container_name: mysql-local
+    restart: always
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_spanish_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${DB_NAME:-app}
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      # 👇 Esto ejecuta tu SQL automáticamente al crear el contenedor
+      - ./SQL/docker-init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eval-network
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+    networks:
+      - eval-network
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: ollama-pull
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-llama3.1:8b-instruct-q4_K_M}
+    entrypoint: ["sh", "-c", "ollama pull ${LLM_MODEL}"]
+    restart: "no"
+    networks:
+      - eval-network
+
+  backend:
+    build: .
+    container_name: eval-api
+    restart: always
+    depends_on:
+      mysql-local:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      ollama-pull:
+        condition: service_completed_successfully
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "mysql://root:${DB_ROOT_PASSWORD:-root}@mysql-local:3306/${DB_NAME:-app}"
+      OLLAMA_HOST: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL:-llama3.1:8b-instruct-q4_K_M}
+    networks:
+      - eval-network
+
+volumes:
+  mysql_data:
+  ollama_data:
+
+networks:
+  eval-network:
+    driver: bridge
+    external: true

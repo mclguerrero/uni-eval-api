@@ -99,13 +99,16 @@ const errorHandler = (err, req, res, next) => {
    * ==========================
    */
 
+  const errorPayload = err.errors
+    ? err.errors // Validation or business rule errors
+    : process.env.NODE_ENV === 'development'
+      ? { message: err.message, stack: err.stack }
+      : undefined;
+
   return errorResponse(res, {
     code: statusCode,
     message,
-    error:
-      process.env.NODE_ENV === 'development'
-        ? { message: err.message, stack: err.stack }
-        : undefined,
+    error: errorPayload,
   });
 };
 

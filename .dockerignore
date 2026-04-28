@@ -1,0 +1,81 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Node
+node_modules
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.npm
+pnpm-debug.log
+
+# IDE
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+*~
+.editorconfig
+
+# Environment
+.env.local
+.env.*.local
+
+# Prisma
+prisma/migrations
+.prisma
+
+# Logs
+logs
+*.log
+
+# Testing
+coverage
+.nyc_output
+jest.config.js
+
+# Build temp
+dist
+build
+.tsbuildinfo
+out
+
+# Documentation
+docs
+README.md
+CHANGELOG.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.circleci
+
+# Scripts temp
+scripts/generated
+scripts/*.json
+
+# SQL (no needed in runtime)
+SQL
+
+# Temporal
+tmp
+
+# Package manager lock (not production)
+pnpm-lock.yaml
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Other build files
+*.ts
+tsconfig.json
+jsconfig.json
+prisma.config.ts
+
+# node_modules in src (si existe)
+src/node_modules

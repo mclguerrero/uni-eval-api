@@ -22,6 +22,16 @@ function buildCrudDocs(nameOrOptions, schema) {
     ? (nameOrOptions.displayName || Name)
     : Name;
 
+  let booleanFields = isOptions && Array.isArray(nameOrOptions.booleanFields)
+    ? nameOrOptions.booleanFields.filter(Boolean)
+    : [];
+
+  if (!booleanFields.length && schema && typeof schema === 'object') {
+    booleanFields = Object.entries(schema)
+      .filter(([_, def]) => def && typeof def === 'object' && def.type === 'boolean' && !def.readonly)
+      .map(([field]) => field);
+  }
+
   // -------------------------------
   // SCHEMAS DINÁMICOS
   // -------------------------------
@@ -91,14 +101,31 @@ function buildCrudDocs(nameOrOptions, schema) {
   // -------------------------------
   const paths = {};
 
+  // Helper para fusionar paths extra sin sobrescribir métodos existentes
+  const mergePaths = (base, extra) => {
+    if (!extra || typeof extra !== 'object') return base;
+    for (const [p, ops] of Object.entries(extra)) {
+      base[p] = base[p] || {};
+      if (ops && typeof ops === 'object') {
+        for (const [method, def] of Object.entries(ops)) {
+          base[p][method] = def; // Sobrescribe método específico si se redefine
+        }
+      }
+    }
+    return base;
+  };
+
   const rootPathOps = {};
   if (isEnabled('list')) {
     rootPathOps.get = {
-      summary: `Listar todos los ${displayName} con paginación`,
+      summary: `Listar todos los ${displayName} con paginación, búsqueda y orden`,
       tags: [displayName],
       parameters: [
-        { in: "query", name: "page", schema: { type: "integer", default: 1 } },
-        { in: "query", name: "limit", schema: { type: "integer", default: 10 } },
+        { in: "query", name: "page", schema: { type: "integer", default: 1 }, description: "Número de página" },
+        { in: "query", name: "limit", schema: { type: "integer", default: 10 }, description: "Registros por página" },
+        { in: "query", name: "sortBy", schema: { type: "string", default: "id" }, description: "Campo para ordenar" },
+        { in: "query", name: "sortOrder", schema: { type: "string", enum: ["asc", "desc"], default: "desc" }, description: "Orden (asc o desc)" },
+        { in: "query", name: "search", schema: { type: "string" }, description: "Término de búsqueda (también acepta 'q')" },
       ],
       responses: {
         200: {
@@ -230,54 +257,107 @@ function buildCrudDocs(nameOrOptions, schema) {
   }
   if (Object.keys(idPathOps).length) paths[`${route}/{id}`] = idPathOps;
 
+  if (isEnabled('toggle') && booleanFields.length) {
+    paths[`${route}/{id}/toggle/{field}`] = {
+      patch: {
+        summary: `Alternar un campo booleano de ${displayName}`,
+        tags: [displayName],
+        parameters: [
+          {
+            in: 'path',
+            name: 'id',
+            required: true,
+            schema: { type: 'integer' },
+            description: 'Identificador del recurso'
+          },
+          {
+            in: 'path',
+            name: 'field',
+            required: true,
+            schema: { type: 'string', enum: booleanFields },
+            description: 'Nombre del campo booleano a alternar'
+          }
+        ],
+        responses: {
+          200: {
+            description: `${displayName} actualizado`,
+            content: {
+              'application/json': {
+                schema: { $ref: `#/components/schemas/${Name}` }
+              }
+            }
+          },
+          400: { description: 'Campo no permitido para toggle' },
+          404: { description: 'No encontrado' }
+        }
+      }
+    };
+  }
+
+  // Permitir inyectar rutas/operaciones personalizadas desde options
+  const extraPaths = isOptions ? nameOrOptions.extraPaths : undefined;
+  mergePaths(paths, extraPaths);
+
   // Si no hay paths habilitados, devolver estructura mínima (sin rutas)
-  return {
-    tags: [
-      {
-        name: displayName,
-        description: `Gestión de ${displayName}`,
+  // Permitir inyectar tags y componentes extra
+  const extraTags = isOptions ? nameOrOptions.extraTags : undefined;
+  const extraComponents = isOptions ? nameOrOptions.extraComponents : undefined;
+
+  const baseTags = [
+    {
+      name: displayName,
+      description: `Gestión de ${displayName}`,
+    },
+  ];
+
+  const components = {
+    schemas: {
+      [Name]: entitySchema,
+
+      [`Create${Name}Input`]: {
+        type: "object",
+        required: createRequired,
+        properties: writableProps,
       },
-    ],
 
-    components: {
-      schemas: {
-        [Name]: entitySchema,
+      [`Update${Name}Input`]: {
+        type: "object",
+        properties: writableProps,
+      },
 
-        [`Create${Name}Input`]: {
-          type: "object",
-          required: createRequired,
-          properties: writableProps,
-        },
-
-        [`Update${Name}Input`]: {
-          type: "object",
-          properties: writableProps,
-        },
-
-        // Nuevo schema para paginación
-        [`${Name}Paginated`]: {
-          type: "object",
-          properties: {
-            data: {
-              type: "array",
-              items: { $ref: `#/components/schemas/${Name}` },
-            },
-            pagination: {
-              type: "object",
-              properties: {
-                page: { type: "integer", example: 1 },
-                limit: { type: "integer", example: 10 },
-                total: { type: "integer", example: 100 },
-                pages: { type: "integer", example: 10 },
-                hasNext: { type: "boolean", example: true },
-                hasPrev: { type: "boolean", example: false },
-              },
+      // Nuevo schema para paginación
+      [`${Name}Paginated`]: {
+        type: "object",
+        properties: {
+          data: {
+            type: "array",
+            items: { $ref: `#/components/schemas/${Name}` },
+          },
+          pagination: {
+            type: "object",
+            properties: {
+              page: { type: "integer", example: 1 },
+              limit: { type: "integer", example: 10 },
+              total: { type: "integer", example: 100 },
+              pages: { type: "integer", example: 10 },
+              hasNext: { type: "boolean", example: true },
+              hasPrev: { type: "boolean", example: false },
             },
           },
         },
       },
     },
+  };
 
+  if (extraComponents && typeof extraComponents === 'object') {
+    if (extraComponents.schemas && typeof extraComponents.schemas === 'object') {
+      components.schemas = { ...components.schemas, ...extraComponents.schemas };
+    }
+  }
+
+  return {
+    tags: Array.isArray(extraTags) ? [...baseTags, ...extraTags] : baseTags,
+    components,
     paths,
   };
 }

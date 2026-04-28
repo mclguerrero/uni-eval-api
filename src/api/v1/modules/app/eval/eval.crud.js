@@ -8,14 +8,6 @@ const eval = createCrudModule({
   disable: ['create'],
 });
 
-const evalDet = createCrudModule({
-  name: 'eval_det',
-  route: '/eval/det',
-  displayName: 'Evaluación Detalle',
-  schemaName: 'EvaluacionDetalle',
-});
-
 module.exports = {
   eval,
-  evalDet,
 };

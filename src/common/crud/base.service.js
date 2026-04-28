@@ -2,8 +2,9 @@ const AppError = require('@utils/AppError');
 const MESSAGES = require('@constants/messages');
 
 class BaseService {
-  constructor(repository) {
+  constructor(repository, options = {}) {
     this.repository = repository;
+    this.booleanFields = Array.isArray(options.booleanFields) ? options.booleanFields : [];
   }
 
   // Remueve campos reservados que no deben aceptarse por escritura
@@ -23,13 +24,24 @@ class BaseService {
     return clean;
   }
 
-  async getAll(pagination) {
-    if (!pagination) {
+  async getAll(options = {}) {
+    // Soportar firma legacy: getAll(pagination)
+    const pagination = options.pagination || options;
+    const sort = options.sort || null;
+    const search = options.search || null;
+
+    const hasPagination = pagination
+      && Number.isFinite(pagination.page)
+      && Number.isFinite(pagination.limit)
+      && Number.isFinite(pagination.skip);
+
+    if (!hasPagination) {
       const data = await this.repository.findAll();
       return { data };
     }
+
     const { skip, limit, page } = pagination;
-    const { items, total } = await this.repository.findPaginated({ skip, limit });
+    const { items, total } = await this.repository.findPaginated({ skip, limit, sort, search });
     const pages = Math.ceil(total / limit) || 1;
     return {
       data: items,
@@ -52,12 +64,14 @@ class BaseService {
 
   create(data) {
     const clean = this.sanitizeWriteData(data);
+    this.normalizeDateOnlyFields(clean);
     return this.repository.create(clean);
   }
 
   async update(id, data) {
     await this.getById(id);
     const clean = this.sanitizeWriteData(data);
+    this.normalizeDateOnlyFields(clean);
     return this.repository.update(id, clean);
   }
 
@@ -65,6 +79,32 @@ class BaseService {
     await this.getById(id);
     return this.repository.delete(id);
   }
+
+  async toggleBoolean(id, fieldName) {
+    const allowed = new Set(this.booleanFields);
+    if (!allowed.has(fieldName)) {
+      throw new AppError(MESSAGES.GENERAL.VALIDATION.INVALID_REQUEST, 400);
+    }
+
+    const current = await this.getById(id);
+    const nextValue = !Boolean(current[fieldName]);
+    const updated = await this.repository.update(id, { [fieldName]: nextValue });
+
+    return updated;
+  }
 }
+
+// Añade métodos al prototipo sin romper referencia de clase
+BaseService.prototype.normalizeDateOnlyFields = function (obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const dateOnlyRegex = /^\d{4}-\d{2}-\d{2}$/; // Formato YYYY-MM-DD
+  for (const [k, v] of Object.entries(obj)) {
+    if (typeof v === 'string' && dateOnlyRegex.test(v)) {
+      // Convertir a objeto Date ISO completo para Prisma (manteniendo medianoche UTC)
+      obj[k] = new Date(v + 'T00:00:00.000Z');
+    }
+  }
+  return obj;
+};
 
 module.exports = BaseService;
