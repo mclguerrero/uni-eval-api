@@ -14,6 +14,72 @@ class EvalService {
 		this.userService = new UserService(new UserRepository());
 	}
 
+	async getStudentAcademicInfo(studentId) {
+		if (!studentId) return null;
+
+		const rows = await userPrisma.vista_academica_insitus.findMany({
+			where: {
+				ID_ESTUDIANTE: String(studentId)
+			},
+			select: {
+				PERIODO: true,
+				NOMBRE_SEDE: true,
+				NOM_PROGRAMA: true,
+				SEMESTRE: true,
+				GRUPO: true
+			}
+		});
+
+		if (!rows.length) return null;
+
+		const academicInfo = {
+			periodo: null,
+			sede: null,
+			programa: null,
+			semestre: null,
+			grupo: null
+		};
+
+		for (const row of rows) {
+			if (academicInfo.periodo == null && row.PERIODO != null) academicInfo.periodo = row.PERIODO;
+			if (academicInfo.sede == null && row.NOMBRE_SEDE != null) academicInfo.sede = row.NOMBRE_SEDE;
+			if (academicInfo.programa == null && row.NOM_PROGRAMA != null) academicInfo.programa = row.NOM_PROGRAMA;
+			if (academicInfo.semestre == null && row.SEMESTRE != null) academicInfo.semestre = row.SEMESTRE;
+			if (academicInfo.grupo == null && row.GRUPO != null) academicInfo.grupo = row.GRUPO;
+
+			if (
+				academicInfo.periodo != null &&
+				academicInfo.sede != null &&
+				academicInfo.programa != null &&
+				academicInfo.semestre != null &&
+				academicInfo.grupo != null
+			) {
+				break;
+			}
+		}
+
+		return academicInfo;
+	}
+
+	applyStudentAcademicInfo(payload, academicInfo) {
+		if (!academicInfo) return payload;
+
+		const truncate = (value, maxLength) => {
+			if (value == null) return null;
+			const text = String(value);
+			return text.length > maxLength ? text.slice(0, maxLength) : text;
+		};
+
+		return {
+			...payload,
+			periodo: truncate(academicInfo.periodo, 10),
+			sede: truncate(academicInfo.sede, 20),
+			programa: truncate(academicInfo.programa, 100),
+			semestre: truncate(academicInfo.semestre, 20),
+			grupo: truncate(academicInfo.grupo, 10)
+		};
+	}
+
 	getRoleFlags(user) {
 		const { roles = [], rolesAuth = [], rolesApp = [] } = user || {};
 		const all = new Set([...(roles || []), ...(rolesAuth || []), ...(rolesApp || [])].filter(Boolean));
@@ -140,6 +206,8 @@ class EvalService {
 			throw new AppError('Las evaluaciones ya fueron generadas para esta configuración', 409);
 		}
 
+		const studentAcademicInfo = isEstudiante ? await this.getStudentAcademicInfo(username) : null;
+
 		// TIPO 1: EVALUACIÓN - Estudiante evalúa a docente por materia
 		if (tipoFormId === 1) {
 			if (!isEstudiante) throw new AppError(MESSAGES.GENERAL.AUTHORIZATION.FORBIDDEN, 403);
@@ -151,13 +219,13 @@ class EvalService {
 			const created = await prisma.$transaction(async (tx) => {
 				const results = [];
 				for (const m of materias) {
-					const payload = {
+					const payload = this.applyStudentAcademicInfo({
 						id_configuracion: configId,
 						estudiante: String(username),
 						docente: m?.docente?.documento ? String(m.docente.documento) : null,
 						codigo_materia: m?.codigo != null ? String(m.codigo) : null,
 						cmt_gen: null,
-					};
+					}, studentAcademicInfo);
 
 					const exists = await this.repository.findExisting(payload, tx);
 					if (!exists) {
@@ -166,7 +234,12 @@ class EvalService {
 							id_configuracion: row.id_configuracion,
 							estudiante: row.estudiante,
 							docente: row.docente,
-							codigo_materia: row.codigo_materia
+							codigo_materia: row.codigo_materia,
+							periodo: row.periodo,
+							sede: row.sede,
+							programa: row.programa,
+							semestre: row.semestre,
+							grupo: row.grupo
 						});
 					}
 				}
@@ -181,13 +254,13 @@ class EvalService {
 			if (!isDocente && !isEstudiante)
 				throw new AppError(MESSAGES.GENERAL.AUTHORIZATION.FORBIDDEN, 403);
 
-			const singlePayload = {
+			const singlePayload = this.applyStudentAcademicInfo({
 				id_configuracion: configId,
 				estudiante: isEstudiante ? String(username) : null,
 				docente: isDocente ? String(username) : null,
 				codigo_materia: null,
 				cmt_gen: null,
-			};
+			}, studentAcademicInfo);
 
 			const created = await prisma.$transaction(async (tx) => {
 				const exists = await this.repository.findExisting(singlePayload, tx);
@@ -197,7 +270,12 @@ class EvalService {
 					id_configuracion: row.id_configuracion,
 					estudiante: row.estudiante,
 					docente: row.docente,
-					codigo_materia: row.codigo_materia
+					codigo_materia: row.codigo_materia,
+					periodo: row.periodo,
+					sede: row.sede,
+					programa: row.programa,
+					semestre: row.semestre,
+					grupo: row.grupo
 				}];
 			});
 
@@ -209,13 +287,13 @@ class EvalService {
 			if (!isDocente && !isEstudiante)
 				throw new AppError(MESSAGES.GENERAL.AUTHORIZATION.FORBIDDEN, 403);
 
-			const singlePayload = {
+			const singlePayload = this.applyStudentAcademicInfo({
 				id_configuracion: configId,
 				estudiante: isEstudiante ? String(username) : null,
 				docente: isDocente ? String(username) : null,
 				codigo_materia: null,
 				cmt_gen: null,
-			};
+			}, studentAcademicInfo);
 
 			const created = await prisma.$transaction(async (tx) => {
 				const exists = await this.repository.findExisting(singlePayload, tx);
@@ -225,7 +303,12 @@ class EvalService {
 					id_configuracion: row.id_configuracion,
 					estudiante: row.estudiante,
 					docente: row.docente,
-					codigo_materia: row.codigo_materia
+					codigo_materia: row.codigo_materia,
+					periodo: row.periodo,
+					sede: row.sede,
+					programa: row.programa,
+					semestre: row.semestre,
+					grupo: row.grupo
 				}];
 			});
 
@@ -253,13 +336,13 @@ class EvalService {
 			const created = await prisma.$transaction(async (tx) => {
 				const results = [];
 				for (const m of materias) {
-					const payload = {
+					const payload = this.applyStudentAcademicInfo({
 						id_configuracion: configId,
 						estudiante: isEstudiante ? String(username) : null,
 						docente: isDocente ? String(username) : null,
 						codigo_materia: m?.codigo != null ? String(m.codigo) : null,
 						cmt_gen: null,
-					};
+					}, studentAcademicInfo);
 
 					const exists = await this.repository.findExisting(payload, tx);
 					if (!exists) {
@@ -269,6 +352,11 @@ class EvalService {
 							estudiante: row.estudiante,
 							docente: row.docente,
 							codigo_materia: row.codigo_materia,
+							periodo: row.periodo,
+							sede: row.sede,
+							programa: row.programa,
+							semestre: row.semestre,
+							grupo: row.grupo,
 							nombre_materia: m?.nombre || null
 						});
 					}
