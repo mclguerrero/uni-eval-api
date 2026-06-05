@@ -51,6 +51,6 @@ router.get('/evaluations/docente/:docente/comments', ctrl.docenteComments);
 
 // GET /metric/evaluations/docente/:docente/report.docx?cfg_t=1&codigo_materia=6655&ai_mode=none|cached&...filters
 // ai_mode=none => genera reporte sin conclusiones IA; cached (default) => usa cmt_ai si existe
-router.get('/evaluations/docente/:docente/report.docx', ctrl.docenteReportDocx);
+router.get('/evaluations/docente/report.docx', ctrl.docenteReportDocx);
 
 module.exports = router;

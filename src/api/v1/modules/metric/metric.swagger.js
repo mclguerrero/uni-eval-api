@@ -1,6 +1,6 @@
 /**
  * @swagger
- * /metric/evaluations/docente/{docente}/report.docx:
+ * /metric/evaluations/docente/report.docx:
  *   get:
  *     summary: Genera y descarga reporte DOCX del docente desde eval y eval_det
  *     description: Genera un documento Word con métricas, conclusiones y análisis de IA para el docente. Obtiene datos directamente de eval (conclusión general, fortalezas, debilidades) y eval_det (conclusiones por aspecto). Soporta filtros estándar.
@@ -8,7 +8,6 @@
  *     parameters:
  *       - in: path
  *         name: docente
- *         required: true
  *         schema:
  *           type: string
  *         description: ID/código del docente

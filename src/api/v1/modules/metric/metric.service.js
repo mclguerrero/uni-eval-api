@@ -2,12 +2,6 @@
 const { analyzeFromAggregated } = require('../ai/comment-analysis.service');
 const { resolveProviderForUser } = require('../ai/ai-key/ai-key.service');
 const { runQueue } = require('../ai/analysis.queue');
-const CfgTRepository = require('../app/cfg-t/cfg-t.repository');
-const path = require('path');
-const fs = require('fs');
-const PizZip = require('pizzip');
-const Docxtemplater = require('docxtemplater');
-const ImageModule = require('docxtemplater-image-module-free');
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
 const aspectChartCanvas = new ChartJSNodeCanvas({
@@ -24,29 +18,6 @@ const ASPECT_CHART_ORDER = [
 ];
 
 
-async function CfgId(cfgTId, search, sort) {
-    // Instanciar el repositorio y llamar el método
-    const repo = new CfgTRepository();
-    return repo.findCfgByIdWithPair(cfgTId, search, sort);
-}
-
-/**
- * Format a Date or date-like value to YYYY-MM-DD.
- * Falls back to empty string if invalid.
- */
-function formatDate(value) {
-    if (!value) return '';
-    try {
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return '';
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-    } catch {
-        return '';
-    }
-}
 /**
  * Format current date-time in America/Bogota timezone.
  * Returns string like YYYY-MM-DD HH:mm:ss (America/Bogota).
@@ -153,24 +124,6 @@ const aspectValueLabelsPlugin = {
     }
 };
 
-function dataURLToArrayBuffer(dataURL) {
-    const base64Regex = /^data:image\/(png|jpg|svg|svg\+xml);base64,/;
-    const stringBase64 = String(dataURL || '').replace(base64Regex, '');
-    let binaryString;
-
-    if (typeof window !== 'undefined') {
-        binaryString = window.atob(stringBase64);
-    } else {
-        binaryString = Buffer.from(stringBase64, 'base64').toString('binary');
-    }
-
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i += 1) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
 
 async function buildAspectBarChartImage(aspectos = []) {
     const bars = buildAspectChartBars(aspectos);
@@ -726,134 +679,123 @@ async function generateDocxReport({
     cfg_t,
     docente,
     codigo_materia,
-    ai_mode,
     sede,
     periodo,
     programa,
     semestre,
-    grupo
+    grupo,
 }) {
-    if (!cfg_t || !docente) throw new Error('cfg_t y docente son requeridos');
+    if (!cfg_t) throw new Error('cfg_t es requerido');
+
+    const { localPrisma, userPrisma } = require('../../../../prisma/clients');
+    const { buildEvaluationReport } = require('./docx-report.builder');
 
     const cfgId = Number(cfg_t);
 
-    // ================================
-    // 1. Obtener datos para Word
-    // - docenteAspectMetrics: fuente oficial de métricas por aspecto (lo pintado en Word)
-    // - docenteComments: comentarios + conclusiones IA/cache
-    // ================================
+    // 1. Obtener lista de docentes a incluir en el reporte
+    const evalWhere = { id_configuracion: cfgId };
+    if (docente)        evalWhere.docente        = String(docente);
+    if (codigo_materia) evalWhere.codigo_materia = String(codigo_materia);
+    if (periodo)        evalWhere.periodo        = String(periodo);
+    if (sede)           evalWhere.sede           = String(sede);
+    if (programa)       evalWhere.programa       = String(programa);
+    if (semestre)       evalWhere.semestre       = String(semestre);
+    if (grupo)          evalWhere.grupo          = String(grupo);
 
-    // Obtener la data de los endpoints ya procesada
-    // Obtener los datos listos desde los endpoints
-    const aspectosEndpoint = await docenteAspectMetrics({
-        cfg_t,
-        docente,
-        codigo_materia,
-        sede,
-        periodo,
-        programa,
-        semestre,
-        grupo
-    });
-    const materiasEndpoint = await docenteMateriaMetrics({
-        cfg_t,
-        docente,
-        codigo_materia,
-        sede,
-        periodo,
-        programa,
-        semestre,
-        grupo
+    const evalsDistinct = await localPrisma.eval.findMany({
+        where:  evalWhere,
+        select: { docente: true },
+        distinct: ['docente'],
     });
 
-    const evalEndpoint = await CfgId(cfgId);
-    const chartAspectos = Array.isArray(aspectosEndpoint?.evaluacion_estudiantes?.aspectos)
-        ? aspectosEndpoint.evaluacion_estudiantes.aspectos
-        : [];
-    const chartImage = await buildAspectBarChartImage(chartAspectos);
-    const materiasList = (materiasEndpoint?.materias || []).map((materia) => ({
-        ...materia,
-        promedio: resolvePromedioForDocx(materia),
-        grupos: Array.isArray(materia?.grupos)
-            ? materia.grupos.map((grupoItem) => ({
-                ...grupoItem,
-                promedio: resolvePromedioForDocx(grupoItem)
-            }))
-            : materia?.grupos
+    if (!evalsDistinct.length) throw new Error('No hay evaluaciones para los filtros dados');
+
+    const docenteIds = evalsDistinct.map(e => e.docente).filter(Boolean);
+
+    // 2. Resolver nombres de docentes desde userPrisma
+    let nombresMap = new Map();
+    try {
+        const registros = await userPrisma.vista_academica_insitus.findMany({
+            where: {
+                ID_DOCENTE: { in: docenteIds },
+                NOT: { DOCENTE: 'DOCENTE SIN ASIGNAR' },
+            },
+            select: { ID_DOCENTE: true, DOCENTE: true },
+            distinct: ['ID_DOCENTE'],
+        });
+        for (const r of registros) nombresMap.set(r.ID_DOCENTE, r.DOCENTE);
+    } catch { /* userPrisma puede no estar disponible en todos los entornos */ }
+
+    // 3. Para cada docente, recopilar: aspectos, materias, cmt_ai, chart
+    const filterBase = { cfg_t, codigo_materia, sede, periodo, programa, semestre, grupo };
+
+    const docentesData = await Promise.all(docenteIds.map(async (doc_id) => {
+        const q = { ...filterBase, docente: doc_id };
+
+        const [aspectos, materiasRaw, cmtAiRecords] = await Promise.all([
+            docenteAspectMetrics(q),
+            docenteMateriaMetrics(q),
+            localPrisma.cmt_ai.findMany({
+                where: {
+                    cfg_t_id:       cfgId,
+                    docente:        String(doc_id),
+                    ...(codigo_materia && { codigo_materia: String(codigo_materia) }),
+                    ...(periodo  && { periodo:  String(periodo)  }),
+                    ...(sede     && { sede:     String(sede)     }),
+                    ...(programa && { programa: String(programa) }),
+                    ...(semestre && { semestre: String(semestre) }),
+                    ...(grupo    && { grupo:    String(grupo)    }),
+                },
+                select: {
+                    codigo_materia: true,
+                    grupo:          true,
+                    conclusion:     true,
+                    fortaleza:      true,
+                    debilidad:      true,
+                },
+            }),
+        ]);
+
+        // Indexar cmt_ai por "codigo_materia|grupo" para acceso O(1)
+        const cmtAiMap = new Map();
+        for (const r of cmtAiRecords) {
+            cmtAiMap.set(`${r.codigo_materia}|${r.grupo ?? 'null'}`, r);
+        }
+
+        const chartAspectos = Array.isArray(aspectos?.evaluacion_estudiantes?.aspectos)
+            ? aspectos.evaluacion_estudiantes.aspectos
+            : [];
+        const chartImage = await buildAspectBarChartImage(chartAspectos);
+
+        const materias = (materiasRaw?.materias ?? []).map((m) => ({
+            ...m,
+            promedio: resolvePromedioForDocx(m),
+            grupos: Array.isArray(m.grupos)
+                ? m.grupos.map(g => ({ ...g, promedio: resolvePromedioForDocx(g) }))
+                : m.grupos,
+        }));
+
+        return {
+            docente:        doc_id,
+            nombre_docente: nombresMap.get(doc_id) ?? null,
+            nota_final:     aspectos?.resultado_final?.nota_final_ponderada ?? null,
+            aspectos,
+            materias,
+            cmtAiMap,
+            chartImage,
+        };
     }));
 
-    // DEBUG: Mostrar fuentes crudas que alimentan el mapeo del template
-    console.log('[DOCX REPORT SOURCES]', JSON.stringify({
-        aspectosEndpoint,
-        materiasEndpoint,
-        evalEndpoint
-    }, null, 2));
-
-    console.log('[DOCX REPORT CHART]', JSON.stringify({
-        hasChart: Boolean(chartImage),
-        bars: buildAspectChartBars(chartAspectos)
-    }, null, 2));
-
-    // Preparar la data para el template (sin cálculos, solo mapeo directo)
-    const data = {
-    // ---- CAMPOS PLANOS (para evitar problemas) ----
-    aspectos_docente: aspectosEndpoint?.docente,
-    aspectos_escala_maxima: aspectosEndpoint?.escala_maxima,
-    aspectos_promedio_general: aspectosEndpoint?.evaluacion_estudiantes?.promedio_general,
-    aspectos_total_respuestas: aspectosEndpoint?.evaluacion_estudiantes?.total_respuestas,
-    aspectos_total_cmt: aspectosEndpoint?.evaluacion_estudiantes?.total_cmt,
-    aspectos_nota_final: aspectosEndpoint?.resultado_final?.nota_final_ponderada,
-
-    materias_docente: materiasEndpoint?.docente,
-    materias_nombre_docente: materiasEndpoint?.nombre_docente,
-
-    informe_fecha: formatDate(Date.now()),
-    informe_fecha_hora: formatDateTimeBogota(Date.now()),
-    has_chart: Boolean(chartImage),
-    chart_image: chartImage,
-
-    // ---- DEJAS ESTO TAL CUAL PARA LOOPS ----
-    aspectos_list: aspectosEndpoint?.evaluacion_estudiantes?.aspectos || [],
-    materias_list: materiasList,
-    eval_list: evalEndpoint || [],
-    };
-
-    // DEBUG: Mostrar la data final que se pasa al template
-    console.log('[DOCX REPORT DATA]', JSON.stringify(data, null, 2));
-
-    // Cargar la plantilla DOCX
-    const templatePath = path.resolve(__dirname, '../../templates/Carta_UniPutumayo.docx');
-    const content = fs.readFileSync(templatePath, 'binary');
-    const zip = new PizZip(content);
-    const imageModule = new ImageModule({
-        centered: true,
-        getImage(tagValue) {
-            return dataURLToArrayBuffer(tagValue);
-        },
-        getSize() {
-            return [700, 400];
-        }
+    // 4. Construir y devolver el buffer DOCX
+    return buildEvaluationReport({
+        docentes:  docentesData,
+        periodo:   periodo  ?? null,
+        sede:      sede     ?? null,
+        programa:  programa ?? null,
+        semestre:  semestre ?? null,
+        grupo:     grupo    ?? null,
+        fecha_hora: formatDateTimeBogota(Date.now()),
     });
-
-    const doc = new Docxtemplater()
-        .attachModule(imageModule)
-        .loadZip(zip)
-        .setOptions({
-            paragraphLoop: true,
-            linebreaks: true,
-            delimiters: { start: '[[', end: ']]' },
-        });
-
-    doc.setData(data);
-
-    try {
-        doc.render();
-    } catch (e) {
-        const explanation = e.properties?.explanation || e.message;
-        throw new Error(`Error en plantilla DOCX: ${explanation}`);
-    }
-
-    return doc.getZip().generate({ type: 'nodebuffer' });
 }
 
 module.exports = {

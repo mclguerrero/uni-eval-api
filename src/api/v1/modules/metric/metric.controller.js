@@ -125,11 +125,10 @@ async function docenteCommentsAnalysis(req, res, next) {
 
 async function docenteReportDocx(req, res, next) {
 	try {
-		const buf = await service.generateDocxReport({
-			...req.query,
-			docente: req.params.docente
-		});
-		const filename = `reporte_docente_${req.params.docente}.docx`;
+		const buf = await service.generateDocxReport(req.query);
+		const docente = req.query.docente ?? 'informe';
+		const periodo = req.query.periodo ? `_${req.query.periodo}` : '';
+		const filename = `reporte_evaluacion_${docente}${periodo}.docx`;
 		res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
 		res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
 		res.status(200).send(buf);
