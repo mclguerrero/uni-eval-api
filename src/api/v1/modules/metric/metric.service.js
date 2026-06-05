@@ -4,11 +4,7 @@ const { resolveProviderForUser } = require('../ai/ai-key/ai-key.service');
 const { runQueue } = require('../ai/analysis.queue');
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
-const aspectChartCanvas = new ChartJSNodeCanvas({
-    width: 1600,
-    height: 920,
-    backgroundColour: 'white'
-});
+// Canvas is created per-call with dynamic height — see buildAspectBarChartImage
 
 const ASPECT_CHART_ORDER = [
     'Evaluación justa',
@@ -99,6 +95,20 @@ function buildAspectChartBars(aspectos = []) {
         .filter((item) => item.label && item.value != null);
 }
 
+// ─── Performance color scale ──────────────────────────────────────────────────
+// Maps a 1-5 score to a fill/border color pair.
+// Excellent → green, acceptable → yellow, poor → red.
+function barColor(value) {
+    if (value >= 4.5) return { bg: 'rgba(21,  128,  61, 0.88)', border: '#15803D' }; // deep green
+    if (value >= 4.0) return { bg: 'rgba(34,  197,  94, 0.85)', border: '#16A34A' }; // green
+    if (value >= 3.5) return { bg: 'rgba(134, 239, 172, 0.82)', border: '#4ADE80' }; // light green
+    if (value >= 3.0) return { bg: 'rgba(234, 179,   8, 0.85)', border: '#CA8A04' }; // amber
+    if (value >= 2.5) return { bg: 'rgba(249, 115,  22, 0.88)', border: '#EA580C' }; // orange
+    if (value >= 2.0) return { bg: 'rgba(239,  68,  68, 0.88)', border: '#DC2626' }; // red
+    return             { bg: 'rgba(185,  28,  28, 0.90)', border: '#991B1B' };       // deep red
+}
+
+// ─── Value label plugin ───────────────────────────────────────────────────────
 const aspectValueLabelsPlugin = {
     id: 'aspectValueLabels',
     afterDatasetsDraw(chart) {
@@ -107,148 +117,154 @@ const aspectValueLabelsPlugin = {
         if (!dataset) return;
 
         ctx.save();
-        ctx.fillStyle = '#111827';
-        ctx.font = 'bold 28px Arial';
-        ctx.textAlign = 'left';
+        ctx.font = 'bold 38px Arial';
         ctx.textBaseline = 'middle';
 
         chart.getDatasetMeta(0).data.forEach((bar, index) => {
             const rawValue = dataset.data?.[index];
             if (rawValue == null) return;
 
-            const label = Number(rawValue).toFixed(2);
-            ctx.fillText(label, bar.x + 18, bar.y);
+            const numVal = Number(rawValue);
+            const label  = numVal.toFixed(2);
+            const color  = barColor(numVal);
+
+            // Value inside bar if wide enough, outside otherwise
+            const barWidth  = bar.x - chart.scales.x.getPixelForValue(0);
+            const textWidth = ctx.measureText(label).width;
+            if (barWidth > textWidth + 28) {
+                ctx.fillStyle   = '#FFFFFF';
+                ctx.textAlign   = 'right';
+                ctx.fillText(label, bar.x - 16, bar.y);
+            } else {
+                ctx.fillStyle   = color.border;
+                ctx.textAlign   = 'left';
+                ctx.fillText(label, bar.x + 14, bar.y);
+            }
         });
 
         ctx.restore();
     }
 };
 
+// ─── Reference line plugin (score = 3.0) ──────────────────────────────────────
+const thresholdLinePlugin = {
+    id: 'thresholdLine',
+    afterDraw(chart) {
+        const { ctx, scales } = chart;
+        const xPx = scales.x?.getPixelForValue(3.0);
+        if (xPx == null) return;
 
+        const top    = chart.chartArea.top;
+        const bottom = chart.chartArea.bottom;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(xPx, top);
+        ctx.lineTo(xPx, bottom);
+        ctx.strokeStyle = 'rgba(100, 100, 100, 0.40)';
+        ctx.lineWidth   = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+
+        ctx.font        = 'normal 22px Arial';
+        ctx.fillStyle   = '#888888';
+        ctx.textAlign   = 'center';
+        ctx.fillText('Mín. 3.0', xPx, top - 10);
+        ctx.restore();
+    }
+};
+
+// ─── Chart builder ────────────────────────────────────────────────────────────
 async function buildAspectBarChartImage(aspectos = []) {
     const bars = buildAspectChartBars(aspectos);
     if (!bars.length) return null;
 
+    const n = bars.length;
+    // Dynamic canvas: narrower width for a more square aspect ratio
+    const BAR_SLOT    = 150;  // px per bar — taller bars, more breathing room
+    const HEADER_H    = 180;  // title + subtitle
+    const FOOTER_H    =  90;  // x-axis ticks + padding
+    const canvasH     = HEADER_H + n * BAR_SLOT + FOOTER_H;
+    const canvasW     = 1200; // narrower → closer to square
+
+    const canvas = new ChartJSNodeCanvas({ width: canvasW, height: canvasH, backgroundColour: 'white' });
+
+    const colors  = bars.map(b => barColor(b.value));
+    const bgList  = colors.map(c => c.bg);
+    const bdrList = colors.map(c => c.border);
+
     const configuration = {
         type: 'bar',
-        plugins: [aspectValueLabelsPlugin],
+        plugins: [aspectValueLabelsPlugin, thresholdLinePlugin],
         data: {
-            labels: bars.map((item) => item.label),
+            labels: bars.map(b => b.label),
             datasets: [{
-                label: 'Promedio por aspecto',
-                data: bars.map((item) => item.value),
-                backgroundColor: [
-                    'rgba(15, 118, 110, 0.92)',
-                    'rgba(59, 130, 246, 0.92)',
-                    'rgba(249, 115, 22, 0.92)',
-                    'rgba(168, 85, 247, 0.92)'
-                ],
-                borderColor: [
-                    'rgba(15, 118, 110, 1)',
-                    'rgba(59, 130, 246, 1)',
-                    'rgba(249, 115, 22, 1)',
-                    'rgba(168, 85, 247, 1)'
-                ],
-                borderWidth: 1,
-                borderRadius: 16,
-                barThickness: 56,
-                maxBarThickness: 62,
-                hoverBackgroundColor: [
-                    'rgba(15, 118, 110, 1)',
-                    'rgba(59, 130, 246, 1)',
-                    'rgba(249, 115, 22, 1)',
-                    'rgba(168, 85, 247, 1)'
-                ]
+                label: 'Promedio',
+                data:             bars.map(b => b.value),
+                backgroundColor:  bgList,
+                borderColor:      bdrList,
+                borderWidth:      1.5,
+                borderRadius:     8,
+                borderSkipped:    false,
+                barThickness:     88,
+                maxBarThickness:  96,
             }]
         },
         options: {
-            responsive: false,
-            animation: false,
-            indexAxis: 'y',
+            responsive:          false,
+            animation:           false,
+            indexAxis:           'y',
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    display: false
-                },
+                legend: { display: false },
                 title: {
                     display: true,
-                    text: 'Resultados por aspecto',
-                    color: '#111827',
-                    font: {
-                        size: 36,
-                        weight: 'bold'
-                    },
-                    padding: {
-                        top: 8,
-                        bottom: 18
-                    }
+                    text:    'Resultados por aspecto evaluado',
+                    color:   '#1A1A1A',
+                    font:    { size: 38, weight: 'bold', family: 'Arial' },
+                    padding: { top: 22, bottom: 6 },
                 },
                 subtitle: {
                     display: true,
-                    text: 'Escala de 1 a 5. Valores mostrados al final de cada barra.',
-                    color: '#6B7280',
-                    font: {
-                        size: 20,
-                        weight: 'normal'
-                    },
-                    padding: {
-                        bottom: 16
-                    }
-                }
+                    text:    'Escala 1 – 5  ·  La línea punteada indica la nota mínima aprobatoria (3.0)',
+                    color:   '#888888',
+                    font:    { size: 26, weight: 'normal', family: 'Arial' },
+                    padding: { bottom: 22 },
+                },
             },
             scales: {
                 x: {
                     min: 0,
                     max: 5,
                     ticks: {
-                        stepSize: 1,
-                        color: '#374151',
-                        font: {
-                            size: 20,
-                            weight: 'bold'
-                        }
+                        stepSize:  1,
+                        color:     '#555555',
+                        font:      { size: 26, family: 'Arial' },
+                        callback:  v => v.toFixed(0),
                     },
                     grid: {
-                        color: 'rgba(148, 163, 184, 0.28)',
-                        lineWidth: 1
+                        color:     'rgba(200, 200, 200, 0.35)',
+                        lineWidth: 1,
                     },
-                    border: {
-                        color: '#CBD5E1'
-                    }
+                    border: { color: '#CCCCCC' },
                 },
                 y: {
                     ticks: {
-                        color: '#111827',
-                        font: {
-                            size: 26,
-                            weight: 'bold'
-                        }
+                        color:     '#1A1A1A',
+                        font:      { size: 32, weight: 'bold', family: 'Arial' },
+                        padding:   14,
                     },
-                    grid: {
-                        display: false
-                    },
-                    border: {
-                        display: false
-                    }
-                }
+                    grid:   { display: false },
+                    border: { display: false },
+                },
             },
             layout: {
-                padding: {
-                    top: 18,
-                    right: 110,
-                    bottom: 20,
-                    left: 22
-                }
+                padding: { top: 36, right: 140, bottom: 28, left: 16 },
             },
-            elements: {
-                bar: {
-                    borderSkipped: false
-                }
-            }
         }
     };
 
-    return aspectChartCanvas.renderToDataURL(configuration);
+    return canvas.renderToDataURL(configuration);
 }
 
 async function evaluationSummary(query) {
@@ -765,6 +781,7 @@ async function generateDocxReport({
         const chartAspectos = Array.isArray(aspectos?.evaluacion_estudiantes?.aspectos)
             ? aspectos.evaluacion_estudiantes.aspectos
             : [];
+        const chartBars  = buildAspectChartBars(chartAspectos);
         const chartImage = await buildAspectBarChartImage(chartAspectos);
 
         const materias = (materiasRaw?.materias ?? []).map((m) => ({
@@ -776,13 +793,14 @@ async function generateDocxReport({
         }));
 
         return {
-            docente:        doc_id,
-            nombre_docente: nombresMap.get(doc_id) ?? null,
-            nota_final:     aspectos?.resultado_final?.nota_final_ponderada ?? null,
+            docente:           doc_id,
+            nombre_docente:    nombresMap.get(doc_id) ?? null,
+            nota_final:        aspectos?.resultado_final?.nota_final_ponderada ?? null,
             aspectos,
             materias,
             cmtAiMap,
             chartImage,
+            chartBarCount:     chartBars.length,
         };
     }));
 
