@@ -1,182 +1,254 @@
-const crypto = require('crypto');
-const { summarizeChunk } = require('@config/ollama_config');
+const { runQueue } = require('./analysis.queue');
+const {
+  SYSTEM_ANALYST,
+  buildGroupPrompt,
+  buildChunkPrompt,
+  buildReducePrompt,
+  buildConsolidatedPrompt,
+} = require('./prompts/teacher-analysis.prompts');
 
-function hashFilter(f) {
-  return crypto.createHash('sha256').update(JSON.stringify(f)).digest('hex').slice(0, 16);
-}
+// ─── límites de chunking ──────────────────────────────────────────────────────
 
-// Optional: implement if direct DB fetching is desired
-async function fetchData(filters) {
-  return { generalComments: [], commentsByAspect: new Map() };
-}
+const DEFAULT_CHUNK_LIMITS = {
+  maxComments:        100,
+  maxCharacters:    50000,
+  maxEstimatedTokens: 12000,
+};
+
+// ─── helpers ──────────────────────────────────────────────────────────────────
 
 function cleanText(s) {
   return (s ?? '').replace(/\s+/g, ' ').trim();
 }
 
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
-async function mapWithConcurrency(items, concurrency, mapper) {
-  if (!Array.isArray(items) || !items.length) return [];
-  const limit = Math.max(1, Number(concurrency) || 1);
-  const results = new Array(items.length);
-  let current = 0;
-
-  async function worker() {
-    while (true) {
-      const idx = current;
-      current += 1;
-      if (idx >= items.length) return;
-      results[idx] = await mapper(items[idx], idx);
-    }
-  }
-
-  const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
-  await Promise.all(workers);
-  return results;
-}
-
 function parseJsonSafe(text, fallback = {}) {
   if (!text || typeof text !== 'string') return fallback;
   try { return JSON.parse(text); } catch {}
-  const match = text.match(/[\[{][\s\S]*[\]}]/);
-  if (match) {
-    try { return JSON.parse(match[0]); } catch {}
-  }
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]); } catch {} }
   return fallback;
 }
 
-async function summarizeAspect(aspectName, comments) {
-  const cleaned = (Array.isArray(comments) ? comments : []).map(cleanText).filter(Boolean);
-  if (!cleaned.length) {
-    return { aspect: aspectName, summary: '', sentiment: 'neutral', themes: [], quotes: [] };
-  }
-  const chunks = chunk(cleaned, 60).map(x => x.join('\n- '));
-  const system = 'Responde SOLO en JSON válido sin texto adicional.';
-  const user = [
-    'Eres un analista pedagógico. Resume comentarios sobre un ÚNICO aspecto docente.',
-    'Normas:',
-    '- Sé equilibrado y constructivo; evita lenguaje extremo o despectivo.',
-    '- No inventes ni extrapoles más allá de los textos; si hay conflicto, sintetiza con neutralidad.',
-    '- Mantén frases breves, específicas y accionables.',
-    'Devuelve EXACTAMENTE este JSON:',
-    '{ "summary": string, "sentiment": "positivo"|"neutral"|"negativo", "themes": string[], "quotes": string[] }',
-    'Límites: summary<=280 chars; cada theme<=50 chars; máximo 6 themes; máximo 3 quotes.'
-  ].join(' ');
-  const partials = await mapWithConcurrency(chunks, 3, async (c) => {
-    const out = await summarizeChunk(c, system, user);
-    return parseJsonSafe(out, { summary: '', sentiment: 'neutral', themes: [], quotes: [] });
-  });
-  const sentimentScore = { positivo: 1, neutral: 0, negativo: -1 };
-  const avg = partials.reduce((a, p) => a + (sentimentScore[p.sentiment] ?? 0), 0) / (partials.length || 1);
-  const sentiment = avg > 0.25 ? 'positivo' : avg < -0.25 ? 'negativo' : 'neutral';
-  const summaryCombined = partials.map(p => p.summary).join(' ').slice(0, 280);
-  const themesCombined = Array.from(new Set(partials.flatMap(p => p.themes.map(t => cleanText(t).slice(0, 50)))))
+function normalizeStringArray(val, maxItems = 5, maxLen = 80) {
+  if (!Array.isArray(val)) return [];
+  return val
+    .map(x => cleanText(String(x ?? '')).slice(0, maxLen))
     .filter(Boolean)
-    .slice(0, 6);
-  const quotesCombined = partials.flatMap(p => p.quotes.map(q => cleanText(q))).filter(Boolean).slice(0, 3);
-  return { aspect: aspectName, summary: summaryCombined, sentiment, themes: themesCombined, quotes: quotesCombined };
+    .slice(0, maxItems);
 }
 
-async function summarizeGlobal(aspectSummaries, generalSummary) {
-  const system = 'Responde SOLO en JSON válido sin texto adicional.';
-  const user = [
-    'Eres un analista pedagógico. Consolida hallazgos por aspecto y el resumen general.',
-    'Normas: evita contradicciones con los resúmenes por aspecto, utiliza un tono profesional y constructivo, y genera acciones claras.',
-    'Devuelve EXACTAMENTE: { "overallConclusion": string, "keyImprovements": string[], "strengths": string[] }',
-    'Límites: overallConclusion<=300 chars; cada item<=80 chars; máximo 5 por lista.'
-  ].join(' ');
-  const input = aspectSummaries.map(a => `Aspecto: ${a.aspect}\nResumen: ${a.summary}\nSentimiento: ${a.sentiment}`).join('\n\n');
-  const res = await summarizeChunk(`${input}\n\nGeneral: ${JSON.stringify(generalSummary)}`, system, user);
-  const parsed = parseJsonSafe(res, { overallConclusion: '', keyImprovements: [], strengths: [] });
-  parsed.overallConclusion = cleanText(String(parsed.overallConclusion || '')).slice(0, 300);
-  parsed.keyImprovements = (Array.isArray(parsed.keyImprovements) ? parsed.keyImprovements : []).map(x => cleanText(String(x || '')).slice(0, 80)).filter(Boolean).slice(0, 5);
-  parsed.strengths = (Array.isArray(parsed.strengths) ? parsed.strengths : []).map(x => cleanText(String(x || '')).slice(0, 80)).filter(Boolean).slice(0, 5);
-  return parsed;
+function estimateTokens(comentarios) {
+  return Math.ceil(comentarios.reduce((s, c) => s + c.length, 0) / 4);
 }
 
-async function analyzeComments(filters) {
-  const key = hashFilter(filters);
-  // 0) cache lookup en DB (opcional)
-  const { generalComments, commentsByAspect } = await fetchData(filters);
-  const generalText = cleanText(generalComments.join('\n- '));
-  let generalSummary = { summary: '', sentiment: 'neutral' };
-  if (generalText) {
-    const system = 'Responde SOLO en JSON válido sin texto adicional.';
-    const user = [
-      'Resume comentario general de estudiantes sobre el docente.',
-      'Normas: equilibrado, respetuoso, sin lenguaje ofensivo, sin exageraciones.',
-      'Devuelve EXACTAMENTE: { "summary": string, "sentiment": "positivo"|"neutral"|"negativo" }',
-      'Límites: summary<=280 chars.'
-    ].join(' ');
-    const out = await summarizeChunk(generalText, system, user);
-    const parsed = parseJsonSafe(out, generalSummary);
-    parsed.summary = cleanText(String(parsed.summary || '')).slice(0, 280);
-    generalSummary = parsed;
-  }
+function needsChunking(comentarios, limits) {
+  const totalChars = comentarios.reduce((s, c) => s + c.length, 0);
+  return (
+    comentarios.length  > limits.maxComments ||
+    totalChars          > limits.maxCharacters ||
+    estimateTokens(comentarios) > limits.maxEstimatedTokens
+  );
+}
 
-  const aspectSummaries = [];
-  for (const [aspectName, comments] of commentsByAspect.entries()) {
-    aspectSummaries.push(await summarizeAspect(aspectName, comments));
-  }
-  const global = await summarizeGlobal(aspectSummaries, generalSummary);
+function splitIntoChunks(comentarios, limits) {
+  const maxChunkChars    = Math.floor(limits.maxCharacters / 2);
+  const maxChunkComments = Math.floor(limits.maxComments   / 2);
+  const chunks = [];
+  let current      = [];
+  let currentChars = 0;
 
-  const result = {
-    filters,
-    aspectSummaries,
-    generalCommentSummary: generalSummary,
-    overallConclusion: global.overallConclusion,
-    stats: { totalComments: [...commentsByAspect.values()].reduce((a, b) => a + b.length, 0), aspectsCount: aspectSummaries.length }
+  for (const cmt of comentarios) {
+    if (
+      current.length >= maxChunkComments ||
+      (current.length > 0 && currentChars + cmt.length > maxChunkChars)
+    ) {
+      chunks.push(current);
+      current      = [];
+      currentChars = 0;
+    }
+    current.push(cmt);
+    currentChars += cmt.length;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
+
+// ─── llamada IA ───────────────────────────────────────────────────────────────
+
+async function callAI(provider, userPrompt) {
+  const raw = await provider.chat([
+    { role: 'system', content: SYSTEM_ANALYST },
+    { role: 'user',   content: userPrompt },
+  ]);
+  return parseJsonSafe(raw, {});
+}
+
+// ─── análisis directo (grupo sin chunking) ────────────────────────────────────
+
+async function analyzeGroupDirect({ grupo, materia, comentarios }, provider) {
+  const parsed = await callAI(provider, buildGroupPrompt({ grupo, materia, comentarios }));
+  return {
+    grupo,
+    conclusion:  cleanText(String(parsed.conclusion  ?? '')).slice(0, 300),
+    fortalezas:  normalizeStringArray(parsed.fortalezas),
+    debilidades: normalizeStringArray(parsed.debilidades),
   };
-  // cache upsert (opcional)
-  return result;
 }
 
-// Analyze from already aggregated repo response (metrics + comments)
-async function analyzeFromAggregated(data, docente) {
-  const generalComments = Array.isArray(data?.cmt_gen)
-    ? data.cmt_gen
-    : (data?.cmt_gen ? [data.cmt_gen] : []);
-  const generalText = cleanText(generalComments.join('\n- '));
-  let generalSummary = { summary: '', sentiment: 'neutral' };
-  if (generalText) {
-    const system = 'Responde SOLO en JSON válido sin texto adicional.';
-    const user = [
-      'Resume comentario general de estudiantes sobre el docente.',
-      'Normas: equilibrado, respetuoso, sin lenguaje ofensivo, sin exageraciones.',
-      'Devuelve EXACTAMENTE: { "summary": string, "sentiment": "positivo"|"neutral"|"negativo" }',
-      'Límites: summary<=280 chars.'
-    ].join(' ');
-    const out = await summarizeChunk(generalText, system, user);
-    const parsed = parseJsonSafe(out, generalSummary);
-    parsed.summary = cleanText(String(parsed.summary || '')).slice(0, 280);
-    generalSummary = parsed;
+// ─── MAP: análisis de un chunk ────────────────────────────────────────────────
+
+async function analyzeChunk({ grupo, materia, chunk, chunkIndex, totalChunks }, provider) {
+  const parsed = await callAI(
+    provider,
+    buildChunkPrompt({ grupo, materia, chunkIndex, totalChunks, comentarios: chunk })
+  );
+  return {
+    fortalezas:  normalizeStringArray(parsed.fortalezas),
+    debilidades: normalizeStringArray(parsed.debilidades),
+    hallazgos:   normalizeStringArray(parsed.hallazgos, 10, 100),
+  };
+}
+
+// ─── REDUCE: síntesis de chunks en resultado de grupo ────────────────────────
+
+async function reduceChunks({ grupo, materia, chunkResults }, provider) {
+  const parsed = await callAI(provider, buildReducePrompt({ grupo, materia, partialResults: chunkResults }));
+  return {
+    grupo,
+    conclusion:  cleanText(String(parsed.conclusion  ?? '')).slice(0, 300),
+    fortalezas:  normalizeStringArray(parsed.fortalezas),
+    debilidades: normalizeStringArray(parsed.debilidades),
+  };
+}
+
+// ─── análisis de grupo (con chunking automático si es necesario) ──────────────
+
+async function analyzeGroup({ grupo, materia, comentarios }, provider, limits) {
+  const limpios = comentarios.map(cleanText).filter(Boolean);
+  if (!limpios.length) return null;
+
+  if (!needsChunking(limpios, limits)) {
+    return analyzeGroupDirect({ grupo, materia, comentarios: limpios }, provider);
   }
 
-  const aspectos = Array.isArray(data?.aspectos) ? data.aspectos : [];
-  const aspectSummaries = await mapWithConcurrency(aspectos, 3, async (a) => {
-    const aspectName = a.nombre || String(a.aspecto_id);
-    const comments = (Array.isArray(a?.cmt) ? a.cmt : []).map(cleanText).filter(Boolean);
-    const summary = await summarizeAspect(aspectName, comments);
-    summary.aspecto_id = a.aspecto_id;
-    return summary;
-  });
-  const global = await summarizeGlobal(aspectSummaries, generalSummary);
+  // MAP: dividir en chunks y analizar cada uno con concurrencia controlada
+  const chunks = splitIntoChunks(limpios, limits);
+  const chunkItems = chunks.map((chunk, chunkIndex) => ({
+    type: 'ANALIZAR_CHUNK',
+    grupo,
+    materia,
+    chunk,
+    chunkIndex,
+    totalChunks: chunks.length,
+  }));
+
+  const chunkResults = (await runQueue(
+    chunkItems,
+    (item) => analyzeChunk(item, provider),
+    { concurrency: 2, retries: 2, timeoutMs: 60_000 }
+  )).filter(Boolean);
+
+  if (!chunkResults.length) return null;
+
+  // Si solo un chunk pasó, aplanar directamente sin llamada adicional a la IA
+  if (chunkResults.length === 1) {
+    const cr = chunkResults[0];
+    return {
+      grupo,
+      conclusion:  [...cr.fortalezas, ...cr.hallazgos].slice(0, 2).join('. ').slice(0, 300),
+      fortalezas:  cr.fortalezas,
+      debilidades: cr.debilidades,
+    };
+  }
+
+  // REDUCE: sintetizar todos los chunks en el resultado final del grupo
+  return reduceChunks({ grupo, materia, chunkResults }, provider);
+}
+
+// ─── consolidación de materia ─────────────────────────────────────────────────
+
+async function analyzeConsolidated(materia, gruposAnalysis, provider) {
+  const parsed = await callAI(provider, buildConsolidatedPrompt({ materia, gruposAnalysis }));
+  return {
+    conclusion:  cleanText(String(parsed.conclusion  ?? '')).slice(0, 350),
+    fortalezas:  normalizeStringArray(parsed.fortalezas),
+    debilidades: normalizeStringArray(parsed.debilidades),
+    tendencias:  normalizeStringArray(parsed.tendencias, 3, 100),
+  };
+}
+
+// ─── entry point ──────────────────────────────────────────────────────────────
+
+/**
+ * Analiza los comentarios de un docente en una materia, agrupados por grupo académico.
+ *
+ * – Chunking automático (Map-Reduce) si el volumen de comentarios supera los límites.
+ * – Consolidado de materia solo cuando hay ≥ 2 grupos con resultado.
+ * – Los providers no conocen agrupación, materias ni chunking: reciben solo mensajes.
+ *
+ * @param {{
+ *   docente: string,
+ *   codigo_materia: string,
+ *   grupos: Array<{ grupo: string, comentarios: string[] }>
+ * }} groupedData
+ * @param {import('./providers/base.provider').BaseAIProvider} provider
+ * @param {{
+ *   chunkLimits?: { maxComments?: number, maxCharacters?: number, maxEstimatedTokens?: number },
+ *   queueOptions?: { concurrency?: number, retries?: number, timeoutMs?: number }
+ * }} options
+ */
+async function analyzeFromAggregated(groupedData, provider, options = {}) {
+  const { codigo_materia, grupos } = groupedData;
+  const limits   = { ...DEFAULT_CHUNK_LIMITS, ...(options.chunkLimits   ?? {}) };
+  const queueOpts = {
+    concurrency: 2, retries: 2, timeoutMs: 120_000,
+    ...(options.queueOptions ?? {}),
+  };
+
+  // Analizar cada grupo de forma independiente
+  const grupoItems = (grupos || []).map(g => ({
+    type: 'ANALIZAR_GRUPO',
+    grupo:       g.grupo,
+    materia:     codigo_materia,
+    comentarios: g.comentarios,
+  }));
+
+  const gruposAnalysis = (await runQueue(
+    grupoItems,
+    (item) => analyzeGroup(item, provider, limits),
+    queueOpts
+  )).filter(Boolean);
+
+  if (!gruposAnalysis.length) {
+    return { analisis: null, motivo: 'sin_comentarios' };
+  }
+
+  // Un solo grupo: usar su resultado como conclusión general (sin llamada extra a la IA)
+  if (gruposAnalysis.length === 1) {
+    const g = gruposAnalysis[0];
+    return {
+      analisis: {
+        conclusion_general: g.conclusion,
+        fortalezas:  g.fortalezas,
+        debilidades: g.debilidades,
+        tendencias:  [],
+        grupos:      gruposAnalysis,
+      },
+    };
+  }
+
+  // Múltiples grupos: consolidar usando resultados ya generados (sin releer comentarios originales)
+  const consolidado = await analyzeConsolidated(codigo_materia, gruposAnalysis, provider);
 
   return {
-    docente,
-    total_respuestas: data.total_respuestas || 0,
     analisis: {
-      conclusion_general: global.overallConclusion || generalSummary.summary || '',
-      aspectos: aspectSummaries.map(s => ({ aspecto_id: s.aspecto_id, aspecto: s.aspect, conclusion: s.summary })),
-      fortalezas: global.strengths || [],
-      debilidades: global.keyImprovements || []
-    }
+      conclusion_general: consolidado.conclusion,
+      fortalezas:  consolidado.fortalezas,
+      debilidades: consolidado.debilidades,
+      tendencias:  consolidado.tendencias,
+      grupos:      gruposAnalysis,
+    },
   };
 }
 
-module.exports = { analyzeComments, analyzeFromAggregated };
+module.exports = { analyzeFromAggregated };

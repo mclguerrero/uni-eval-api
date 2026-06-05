@@ -228,7 +228,7 @@
  */
 /**
  * @swagger
- * /metric/evaluations/docente/{docente}/comments/analysis:
+ * /metric/evaluations/comments/analysis:
  *   get:
  *     summary: Analiza comentarios con IA por materia y actualiza conclusiones en la BD
  *     description: |
@@ -241,7 +241,6 @@
  *     parameters:
  *       - in: path
  *         name: docente
- *         required: true
  *         schema:
  *           type: string
  *       - in: query

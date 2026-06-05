@@ -3,6 +3,7 @@ const ctrl = require('./metric.controller');
 const pagination = require('@middlewares/http/pagination');
 const search = require('@middlewares/http/search');
 const sort = require('@middlewares/http/sort');
+const { ensureAuth } = require('@middlewares/auth.middleware');
 
 const router = express.Router();
 
@@ -19,6 +20,10 @@ router.get('/evaluations/summary/programas', ctrl.summaryByProgram);
 
 // GET /metric/evaluations/ranking?cfg_t=1&...filters
 router.get('/evaluations/ranking', ctrl.ranking);
+
+// GET /metric/evaluations/docente/:docente/comments/analysis?cfg_t=1&codigo_materia=6655
+// Runs local AI (Ollama) to summarize comments and return insights
+router.get('/evaluations/comments/analysis', ensureAuth, ctrl.docenteCommentsAnalysis);
 
 // GET /metric/evaluations/docente?cfg_t=1&docente=...&...filters
 // If docente is not provided, returns stats for all docentes (paginated)
@@ -43,10 +48,6 @@ router.get('/evaluations/docente/:docente/materias/:codigo_materia/completion', 
 // GET /metric/evaluations/docente/:docente/comments?cfg_t=1&codigo_materia=6655
 // Returns metrics with comments; codigo_materia is optional via query
 router.get('/evaluations/docente/:docente/comments', ctrl.docenteComments);
-
-// GET /metric/evaluations/docente/:docente/comments/analysis?cfg_t=1&codigo_materia=6655
-// Runs local AI (Ollama) to summarize comments and return insightsdocenteCommentsAnalysis
-router.get('/evaluations/docente/:docente/comments/analysis', ctrl.docenteCommentsAnalysis);
 
 // GET /metric/evaluations/docente/:docente/report.docx?cfg_t=1&codigo_materia=6655&ai_mode=none|cached&...filters
 // ai_mode=none => genera reporte sin conclusiones IA; cached (default) => usa cmt_ai si existe

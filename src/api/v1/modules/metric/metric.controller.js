@@ -109,7 +109,10 @@ async function docenteComments(req, res, next) {
 
 async function docenteCommentsAnalysis(req, res, next) {
 	try {
-		const data = await service.docenteCommentsAnalysis({ ...req.query, docente: req.params.docente });
+		const data = await service.docenteCommentsAnalysis({
+			...req.query,
+			user_id: req.user?.id ?? null,
+		});
 		successResponse(res, {
 			code: 200,
 			message: messages.GENERAL.SUCCESS.FETCH_SUCCESS,

@@ -2200,37 +2200,24 @@ async function getDocenteCommentsWithMetrics({ cfg_t, docente, codigo_materia, s
 	});
 
 	// Cargar conclusiones/fortaleza/debilidad desde cmt_ai.
-	// Compatibilidad: algunos clientes Prisma no exponen docente/codigo_materia en cmt_ai.
-	let cmtAi = [];
-	try {
-		cmtAi = await localPrisma.cmt_ai.findMany({
-			where: {
-				cfg_t_id: cfgId,
-				docente: String(docente),
-				codigo_materia: codigo_materia ? String(codigo_materia) : undefined
-			},
-			select: { aspecto_id: true, conclusion: true, conclusion_gen: true, fortaleza: true, debilidad: true }
-		});
-	} catch (err) {
-		if (String(err?.message || '').includes('Unknown argument `docente`')) {
-			cmtAi = await localPrisma.cmt_ai.findMany({
-				where: { cfg_t_id: cfgId },
-				select: { aspecto_id: true, conclusion: true, conclusion_gen: true, fortaleza: true, debilidad: true }
-			});
-		} else {
-			throw err;
-		}
-	}
+	// El registro consolidado (varios grupos) tiene grupo = null.
+	// Los registros por grupo tienen grupo = 'A', 'B', etc.
+	const cmtAi = await localPrisma.cmt_ai.findMany({
+		where: {
+			cfg_t_id: cfgId,
+			docente: String(docente),
+			codigo_materia: codigo_materia ? String(codigo_materia) : undefined
+		},
+		select: { grupo: true, conclusion: true, fortaleza: true, debilidad: true }
+	});
+
+	// Conclusión general: registro consolidado (grupo null) o, si solo hay uno, el único registro
+	const consolidated = cmtAi.find(c => c.grupo === null);
+	const conclusionGen = consolidated?.conclusion ?? cmtAi[0]?.conclusion ?? null;
+	const fortalezas  = parseJsonSafe(consolidated?.fortaleza  ?? cmtAi[0]?.fortaleza,  []);
+	const debilidades = parseJsonSafe(consolidated?.debilidad  ?? cmtAi[0]?.debilidad,  []);
+	// aspecto_id se ignora en esta versión; mapa vacío para compatibilidad con el return
 	const conclusionByAspect = new Map();
-	for (const c of cmtAi) {
-		if (c.aspecto_id) {
-			const existing = conclusionByAspect.get(c.aspecto_id);
-			if (!existing && c.conclusion) conclusionByAspect.set(c.aspecto_id, c.conclusion);
-		}
-	}
-	const conclusionGen = (cmtAi.find(c => c.conclusion_gen)?.conclusion_gen) || null;
-	const fortalezas = Array.from(new Set(cmtAi.flatMap(c => parseJsonSafe(c.fortaleza, [])).filter(Boolean)));
-	const debilidades = Array.from(new Set(cmtAi.flatMap(c => parseJsonSafe(c.debilidad, [])).filter(Boolean)));
 
 	const aeIds = Array.from(new Set(detalles.map(d => d.a_e_id)));
 	if (!aeIds.length) {
