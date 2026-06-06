@@ -18,6 +18,24 @@
  *           type: integer
  *         tipo_form_id:
  *           type: integer
+ *         periodo:
+ *           type: string
+ *           example: "2026-1"
+ *         sede:
+ *           type: string
+ *           nullable: true
+ *         facultad:
+ *           type: string
+ *           nullable: true
+ *         programa:
+ *           type: string
+ *           nullable: true
+ *         semestre:
+ *           type: string
+ *           nullable: true
+ *         grupo:
+ *           type: string
+ *           nullable: true
  *         fecha_inicio:
  *           type: boolean
  *         es_cmt_gen_oblig:
@@ -75,11 +93,6 @@
  *               origen:
  *                 type: string
  *                 enum: [APP, AUTH]
- *         scopes:
- *           type: array
- *           description: Scopes asociados a la configuración
- *           items:
- *             $ref: '#/components/schemas/ScopeItem'
  *         cfg_t_rel:
  *           allOf:
  *             - $ref: '#/components/schemas/CfgTRel'
@@ -352,41 +365,28 @@
  *     ScopeItem:
  *       type: object
  *       properties:
- *         id:
- *           type: integer
  *         cfg_t_id:
  *           type: integer
- *         sede_id:
- *           type: integer
- *           nullable: true
- *         sede_nombre:
+ *         periodo:
+ *           type: string
+ *           example: "2026-1"
+ *         sede:
  *           type: string
  *           nullable: true
- *           example: "Bogotá"
- *         periodo_id:
- *           type: integer
- *         periodo_nombre:
+ *           example: "UNIP-MOCOA"
+ *         facultad:
  *           type: string
  *           nullable: true
- *           example: "2024-1"
- *         programa_id:
- *           type: integer
- *           nullable: true
- *         programa_nombre:
+ *           example: "Facultad de Ingeniería"
+ *         programa:
  *           type: string
  *           nullable: true
- *           example: "Ingeniería de Sistemas"
- *         semestre_id:
- *           type: integer
- *           nullable: true
- *         semestre_nombre:
+ *           example: "INGENIERIA DE SISTEMAS"
+ *         semestre:
  *           type: string
  *           nullable: true
- *           example: "III"
- *         grupo_id:
- *           type: integer
- *           nullable: true
- *         grupo_nombre:
+ *           example: "TERCER SEMESTRE"
+ *         grupo:
  *           type: string
  *           nullable: true
  *           example: "A"
@@ -435,26 +435,29 @@
  *           type: boolean
  *         es_activo:
  *           type: boolean
- *         scopes:
- *           type: array
- *           minItems: 1
- *           items:
- *             type: object
- *             properties:
- *               sede_id:
- *                 type: integer
- *                 nullable: true
- *               periodo_id:
- *                 type: integer
- *               programa_id:
- *                 type: integer
- *                 nullable: true
- *               semestre_id:
- *                 type: integer
- *                 nullable: true
- *               grupo_id:
- *                 type: integer
- *                 nullable: true
+ *         periodo:
+ *           type: string
+ *           example: "2026-1"
+ *           description: Período académico (requerido)
+ *         sede:
+ *           type: string
+ *           nullable: true
+ *           example: "UNIP-MOCOA"
+ *         facultad:
+ *           type: string
+ *           nullable: true
+ *         programa:
+ *           type: string
+ *           nullable: true
+ *           example: "INGENIERIA DE SISTEMAS"
+ *         semestre:
+ *           type: string
+ *           nullable: true
+ *           example: "TERCER SEMESTRE"
+ *         grupo:
+ *           type: string
+ *           nullable: true
+ *           example: "A"
  *         roles:
  *           type: array
  *           minItems: 1
@@ -495,8 +498,6 @@
  *                   type: integer
  *                 cfg_autoeval_id:
  *                   type: integer
- *             scope_count:
- *               type: integer
  */
 
 /**
@@ -522,12 +523,12 @@
  *             es_cmt_gen: true
  *             es_cmt_gen_oblig: false
  *             es_activo: true
- *             scopes:
- *               - sede_id: null
- *                 periodo_id: 1
- *                 programa_id: 1
- *                 semestre_id: 1
- *                 grupo_id: 1
+ *             periodo: "2026-1"
+ *             sede: null
+ *             facultad: null
+ *             programa: "INGENIERIA DE SISTEMAS"
+ *             semestre: "TERCER SEMESTRE"
+ *             grupo: null
  *             roles:
  *               - rol_mix_id: 1
  *               - rol_mix_id: 2

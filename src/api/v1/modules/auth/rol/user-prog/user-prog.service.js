@@ -14,11 +14,15 @@ class UserProgService {
 		const { items, total } = await this.repository.findPaginatedWithDataLogin({ skip, limit, sort, search });
 		const pages = Math.ceil(total / limit) || 1;
 
-		const data = items.map((item) => ({
+		const data = items.map(item => ({
 			id: item.id,
 			user_rol_id: item.user_rol_id,
-			prog_id: item.prog_id,
-			prog_nombre: item.prog?.nombre ?? null,
+			periodo: item.periodo,
+			sede: item.sede ?? null,
+			facultad: item.facultad ?? null,
+			programa: item.programa ?? null,
+			semestre: item.semestre ?? null,
+			grupo: item.grupo ?? null,
 			fecha_creacion: item.fecha_creacion,
 			fecha_actualizacion: item.fecha_actualizacion,
 			datalogin: item.datalogin ? {
@@ -27,8 +31,8 @@ class UserProgService {
 				user_email: item.datalogin.user_email,
 				user_idrole: item.datalogin.user_idrole,
 				user_statusid: item.datalogin.user_statusid,
-				role_name: item.datalogin.role_name
-			} : null
+				role_name: item.datalogin.role_name,
+			} : null,
 		}));
 
 		return {
@@ -39,8 +43,8 @@ class UserProgService {
 				total,
 				pages,
 				hasNext: page < pages,
-				hasPrev: page > 1
-			}
+				hasPrev: page > 1,
+			},
 		};
 	}
 }

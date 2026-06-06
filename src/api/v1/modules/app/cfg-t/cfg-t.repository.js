@@ -45,33 +45,6 @@ class CfgTRepository {
 			origen: r.rol_mix?.origen,
 		}));
 
-		// Enriquecer con scopes
-		const scopes = await prisma.cfg_t_scope.findMany({
-			where: { cfg_t_id: id },
-			include: {
-				sede: { select: { id: true, nombre: true } },
-				periodo: { select: { id: true, nombre: true } },
-				programa: { select: { id: true, nombre: true } },
-				smstre: { select: { id: true, nombre: true } },
-				grp: { select: { id: true, nombre: true } },
-			},
-			orderBy: { id: 'asc' },
-		});
-		const scopesMapped = scopes.map(scope => ({
-			id: scope.id,
-			cfg_t_id: scope.cfg_t_id,
-			sede_id: scope.sede_id,
-			sede_nombre: scope.sede?.nombre || null,
-			periodo_id: scope.periodo_id,
-			periodo_nombre: scope.periodo?.nombre || null,
-			programa_id: scope.programa_id,
-			programa_nombre: scope.programa?.nombre || null,
-			semestre_id: scope.semestre_id,
-			semestre_nombre: scope.smstre?.nombre || null,
-			grupo_id: scope.grupo_id,
-			grupo_nombre: scope.grp?.nombre || null,
-		}));
-
 		// Buscar si tiene pareja (cfg_t_rel)
 		const rel = await prisma.cfg_t_rel.findFirst({
 			where: {
@@ -125,28 +98,22 @@ class CfgTRepository {
 							: null,
 					}
 				: null,
+			periodo: cfgT.periodo,
+			sede: cfgT.sede ?? null,
+			facultad: cfgT.facultad ?? null,
+			programa: cfgT.programa ?? null,
+			semestre: cfgT.semestre ?? null,
+			grupo: cfgT.grupo ?? null,
 			rolesRequeridos,
-			scopes: scopesMapped,
 			cfg_t_rel,
 		};
 
 		return [result];
 	}
 	
-	async createCfgTFull({ cfg_t, scopes, role_mix_ids, autoeval_role_mix_ids }) {
+	async createCfgTFull({ cfg_t, role_mix_ids, autoeval_role_mix_ids }) {
 		return prisma.$transaction(async tx => {
 			const cfgEval = await tx.cfg_t.create({ data: cfg_t });
-
-			await tx.cfg_t_scope.createMany({
-				data: scopes.map(scope => ({
-					cfg_t_id: cfgEval.id,
-					sede_id: scope.sede_id,
-					periodo_id: scope.periodo_id,
-					programa_id: scope.programa_id,
-					semestre_id: scope.semestre_id,
-					grupo_id: scope.grupo_id,
-				})),
-			});
 
 			await tx.cfg_t_rol.createMany({
 				data: role_mix_ids.map(rolMixId => ({
@@ -166,7 +133,6 @@ class CfgTRepository {
 					cfg_eval: cfgEval,
 					cfg_autoeval: null,
 					relation: null,
-					scope_count: scopes.length,
 				};
 			}
 
@@ -176,23 +142,18 @@ class CfgTRepository {
 					tipo_form_id: cfg_t.autoeval_tipo_form_id,
 					genera_autoeval: false,
 					autoeval_tipo_form_id: null,
+					periodo: cfg_t.periodo,
+					sede: cfg_t.sede,
+					facultad: cfg_t.facultad,
+					programa: cfg_t.programa,
+					semestre: cfg_t.semestre,
+					grupo: cfg_t.grupo,
 					fecha_inicio: cfg_t.fecha_inicio,
 					fecha_fin: cfg_t.fecha_fin,
 					es_cmt_gen: cfg_t.es_cmt_gen,
 					es_cmt_gen_oblig: cfg_t.es_cmt_gen_oblig,
 					es_activo: cfg_t.es_activo,
 				},
-			});
-
-			await tx.cfg_t_scope.createMany({
-				data: scopes.map(scope => ({
-					cfg_t_id: cfgAutoeval.id,
-					sede_id: scope.sede_id,
-					periodo_id: scope.periodo_id,
-					programa_id: scope.programa_id,
-					semestre_id: scope.semestre_id,
-					grupo_id: scope.grupo_id,
-				})),
 			});
 
 			// Usar autoeval_role_mix_ids si están disponibles, sino usar role_mix_ids
@@ -219,7 +180,6 @@ class CfgTRepository {
 				cfg_eval: cfgEval,
 				cfg_autoeval: cfgAutoeval,
 				relation,
-				scope_count: scopes.length,
 			};
 		});
 	}
@@ -637,56 +597,17 @@ class CfgTRepository {
 			.filter(Boolean);
 
 		if (!cfgTIds.length) {
-			return cfgTs.map(cfg => ({
-				...cfg,
-				scopes: [],
-				cfg_t_rel: null,
-			}));
+			return cfgTs.map(cfg => ({ ...cfg, cfg_t_rel: null }));
 		}
 
-		const [scopes, relations] = await Promise.all([
-			prisma.cfg_t_scope.findMany({
-				where: { cfg_t_id: { in: cfgTIds } },
-				include: {
-					sede: { select: { id: true, nombre: true } },
-					periodo: { select: { id: true, nombre: true } },
-					programa: { select: { id: true, nombre: true } },
-					smstre: { select: { id: true, nombre: true } },
-					grp: { select: { id: true, nombre: true } },
-				},
-				orderBy: { id: 'asc' },
-			}),
-			prisma.cfg_t_rel.findMany({
-				where: {
-					OR: [
-						{ cfg_eval_id: { in: cfgTIds } },
-						{ cfg_autoeval_id: { in: cfgTIds } },
-					],
-				},
-			}),
-		]);
-
-		const scopesByCfgTId = new Map();
-		for (const scope of scopes) {
-			if (!scopesByCfgTId.has(scope.cfg_t_id)) {
-				scopesByCfgTId.set(scope.cfg_t_id, []);
-			}
-
-			scopesByCfgTId.get(scope.cfg_t_id).push({
-				id: scope.id,
-				cfg_t_id: scope.cfg_t_id,
-				sede_id: scope.sede_id,
-				sede_nombre: scope.sede?.nombre || null,
-				periodo_id: scope.periodo_id,
-				periodo_nombre: scope.periodo?.nombre || null,
-				programa_id: scope.programa_id,
-				programa_nombre: scope.programa?.nombre || null,
-				semestre_id: scope.semestre_id,
-				semestre_nombre: scope.smstre?.nombre || null,
-				grupo_id: scope.grupo_id,
-				grupo_nombre: scope.grp?.nombre || null,
-			});
-		}
+		const relations = await prisma.cfg_t_rel.findMany({
+			where: {
+				OR: [
+					{ cfg_eval_id: { in: cfgTIds } },
+					{ cfg_autoeval_id: { in: cfgTIds } },
+				],
+			},
+		});
 
 		const relationByCfgTId = new Map();
 		for (const relation of relations) {
@@ -709,7 +630,6 @@ class CfgTRepository {
 
 		return cfgTs.map(cfg => ({
 			...cfg,
-			scopes: scopesByCfgTId.get(cfg.id) || [],
 			cfg_t_rel: relationByCfgTId.get(cfg.id) || null,
 		}));
 	}
@@ -815,6 +735,12 @@ class CfgTRepository {
 			id: cfgT.id,
 			tipo_id: cfgT.tipo_id,
 			tipo_form: cfgT.tipo_form,
+			periodo: cfgT.periodo,
+			sede: cfgT.sede ?? null,
+			facultad: cfgT.facultad ?? null,
+			programa: cfgT.programa ?? null,
+			semestre: cfgT.semestre ?? null,
+			grupo: cfgT.grupo ?? null,
 			fecha_inicio: cfgT.fecha_inicio,
 			fecha_fin: cfgT.fecha_fin,
 			es_cmt_gen: cfgT.es_cmt_gen,
@@ -1111,32 +1037,22 @@ class CfgTRepository {
 	}
 
 	async findScopeWithNamesByCfgTId(cfgTId) {
-		const scopes = await prisma.cfg_t_scope.findMany({
-			where: { cfg_t_id: cfgTId },
-			include: {
-				sede: { select: { id: true, nombre: true } },
-				periodo: { select: { id: true, nombre: true } },
-				programa: { select: { id: true, nombre: true } },
-				smstre: { select: { id: true, nombre: true } },
-				grp: { select: { id: true, nombre: true } },
-			},
-			orderBy: { id: 'asc' },
+		const cfgT = await prisma.cfg_t.findUnique({
+			where: { id: cfgTId },
+			select: { id: true, periodo: true, sede: true, facultad: true, programa: true, semestre: true, grupo: true },
 		});
 
-		return scopes.map(scope => ({
-			id: scope.id,
-			cfg_t_id: scope.cfg_t_id,
-			sede_id: scope.sede_id,
-			sede_nombre: scope.sede?.nombre || null,
-			periodo_id: scope.periodo_id,
-			periodo_nombre: scope.periodo?.nombre || null,
-			programa_id: scope.programa_id,
-			programa_nombre: scope.programa?.nombre || null,
-			semestre_id: scope.semestre_id,
-			semestre_nombre: scope.smstre?.nombre || null,
-			grupo_id: scope.grupo_id,
-			grupo_nombre: scope.grp?.nombre || null,
-		}));
+		if (!cfgT) return null;
+
+		return {
+			cfg_t_id: cfgT.id,
+			periodo: cfgT.periodo,
+			sede: cfgT.sede ?? null,
+			facultad: cfgT.facultad ?? null,
+			programa: cfgT.programa ?? null,
+			semestre: cfgT.semestre ?? null,
+			grupo: cfgT.grupo ?? null,
+		};
 	}
 }
 

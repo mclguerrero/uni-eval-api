@@ -25,13 +25,6 @@ const user_rol = createCrudModule({
   schemaName: 'UserRol',
 });
 
-const prog = createCrudModule({
-  name: 'prog',
-  route: '/prog',
-  displayName: 'Prog',
-  schemaName: 'Prog',
-});
-
 const user_prog = createCrudModule({
   name: 'user_prog',
   route: '/user/prog',
@@ -42,6 +35,5 @@ const user_prog = createCrudModule({
 module.exports = {
   rol,
   user_rol,
-  prog,
   user_prog,
 };

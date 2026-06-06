@@ -21,28 +21,24 @@ class CfgTService {
 		}
 
 		const cfg = payload.cfg_t && typeof payload.cfg_t === 'object' ? payload.cfg_t : payload;
-		const scopesInput = Array.isArray(payload.scopes)
-			? payload.scopes
-			: payload.scope && typeof payload.scope === 'object'
-				? [payload.scope]
-				: [];
 		const rolesInput = Array.isArray(payload.roles)
 			? payload.roles
 			: Array.isArray(payload.rol_mix_ids)
 				? payload.rol_mix_ids
 				: [];
 
-		if (!scopesInput.length) {
-			throw new AppError('Debe enviar al menos un scope', 400);
-		}
-
 		const tipoId = Number(cfg.tipo_id);
 		const tipoFormId = Number(cfg.tipo_form_id);
 		const fechaInicio = cfg.fecha_inicio;
 		const fechaFin = cfg.fecha_fin;
+		const periodo = cfg.periodo;
 
-		if (!tipoId || !tipoFormId || !fechaInicio || !fechaFin) {
+		if (!tipoId || !tipoFormId || !fechaInicio || !fechaFin || !periodo) {
 			throw new AppError(MESSAGES.GENERAL.VALIDATION.MISSING_FIELDS, 400);
+		}
+
+		if (typeof periodo !== 'string' || !periodo.trim()) {
+			throw new AppError('periodo es requerido y debe ser texto (ej: "2026-1")', 400);
 		}
 
 		const inicio = new Date(fechaInicio);
@@ -89,34 +85,12 @@ class CfgTService {
 			throw new AppError('autoeval_rol_mix_ids es requerido cuando genera_autoeval es true', 400);
 		}
 
-		const scopes = scopesInput.map((scope, index) => {
-			const sedeId = scope?.sede_id == null ? null : Number(scope.sede_id);
-			const periodoId = Number(scope?.periodo_id);
-
-			// Sede es opcional (puede ser null), pero periodo es requerido
-			if (!periodoId) {
-				throw new AppError(`Scope[${index}] inválido: periodo_id es requerido`, 400);
-			}
-
-			return {
-				sede_id: sedeId,
-				periodo_id: periodoId,
-				programa_id: scope?.programa_id == null ? null : Number(scope.programa_id),
-				semestre_id: scope?.semestre_id == null ? null : Number(scope.semestre_id),
-				grupo_id: scope?.grupo_id == null ? null : Number(scope.grupo_id),
-			};
-		});
-
-		const roleMixIdsFromPayload = rolesInput
-			.map(item => (typeof item === 'object' && item !== null ? item.rol_mix_id : item))
-			.map(Number)
-			.filter(Boolean);
-
-		const roleMixIdsFromScopes = scopesInput
-			.map(scope => Number(scope?.rol_mix_id))
-			.filter(Boolean);
-
-		const roleMixIds = [...new Set([...roleMixIdsFromPayload, ...roleMixIdsFromScopes])];
+		const roleMixIds = [...new Set(
+			rolesInput
+				.map(item => (typeof item === 'object' && item !== null ? item.rol_mix_id : item))
+				.map(Number)
+				.filter(Boolean)
+		)];
 
 		if (!roleMixIds.length) {
 			throw new AppError('Debe enviar al menos un rol en roles/rol_mix_ids', 400);
@@ -128,13 +102,18 @@ class CfgTService {
 				tipo_form_id: tipoFormId,
 				genera_autoeval: generaAutoeval,
 				autoeval_tipo_form_id: autoevalTipoFormId,
+				periodo: periodo.trim(),
+				sede: cfg.sede ?? null,
+				facultad: cfg.facultad ?? null,
+				programa: cfg.programa ?? null,
+				semestre: cfg.semestre ?? null,
+				grupo: cfg.grupo ?? null,
 				fecha_inicio: inicio,
 				fecha_fin: fin,
 				es_cmt_gen: esCmtGen,
 				es_cmt_gen_oblig: esCmtGenOblig,
 				es_activo: esActivo,
 			},
-			scopes,
 			role_mix_ids: roleMixIds,
 			autoeval_role_mix_ids: autoevalRoleMixIds,
 		};
