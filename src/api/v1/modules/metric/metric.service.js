@@ -477,7 +477,7 @@ async function docenteComments(query) {
  * Incluye los filtros opcionales de contexto (periodo, sede, programa, semestre)
  * para no borrar análisis de otros contextos del mismo docente/materia.
  */
-async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, periodo, sede, programa, semestre }) {
+async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, periodo, sede, facultad, programa, semestre }) {
     const where = {
         cfg_t_id:       cfgId,
         docente:        String(docente),
@@ -485,6 +485,7 @@ async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, p
     };
     if (periodo)  where.periodo  = periodo;
     if (sede)     where.sede     = sede;
+    if (facultad) where.facultad = facultad;
     if (programa) where.programa = programa;
     if (semestre) where.semestre = semestre;
 
@@ -530,6 +531,7 @@ async function docenteCommentsAnalysis(query) {
     const evalWhere = { id_configuracion: cfgId };
     if (query.periodo)         evalWhere.periodo        = String(query.periodo);
     if (query.sede)            evalWhere.sede            = String(query.sede);
+    if (query.facultad)        evalWhere.facultad        = String(query.facultad);
     if (query.programa)        evalWhere.programa        = String(query.programa);
     if (query.semestre)        evalWhere.semestre        = String(query.semestre);
     if (query.grupo)           evalWhere.grupo           = String(query.grupo);
@@ -541,7 +543,7 @@ async function docenteCommentsAnalysis(query) {
         where:  evalWhere,
         select: {
             id: true,
-            periodo: true, sede: true, programa: true, semestre: true,
+            periodo: true, sede: true, facultad: true, programa: true, semestre: true,
             grupo: true, docente: true, codigo_materia: true, cmt_gen: true,
         },
     });
@@ -570,7 +572,7 @@ async function docenteCommentsAnalysis(query) {
     const materiaMap = new Map();
     for (const ev of evals) {
         const key = [
-            ev.periodo || '', ev.sede || '', ev.programa || '',
+            ev.periodo || '', ev.sede || '', ev.facultad || '', ev.programa || '',
             ev.semestre || '', ev.docente || '', ev.codigo_materia || '',
         ].join('|');
 
@@ -578,6 +580,7 @@ async function docenteCommentsAnalysis(query) {
             materiaMap.set(key, {
                 periodo:        ev.periodo,
                 sede:           ev.sede,
+                facultad:       ev.facultad,
                 programa:       ev.programa,
                 semestre:       ev.semestre,
                 docente:        ev.docente,
@@ -609,6 +612,7 @@ async function docenteCommentsAnalysis(query) {
             codigo_materia: mat.codigo_materia,
             periodo:        mat.periodo,
             sede:           mat.sede,
+            facultad:       mat.facultad,
             programa:       mat.programa,
             semestre:       mat.semestre,
         });
@@ -616,7 +620,7 @@ async function docenteCommentsAnalysis(query) {
         if (!tieneContenido) {
             return {
                 docente: mat.docente, codigo_materia: mat.codigo_materia,
-                periodo: mat.periodo, sede: mat.sede,
+                periodo: mat.periodo, sede: mat.sede, facultad: mat.facultad,
                 programa: mat.programa, semestre: mat.semestre,
                 estado: 'sin_comentarios',
             };
@@ -641,6 +645,7 @@ async function docenteCommentsAnalysis(query) {
                     codigo_materia: mat.codigo_materia,
                     periodo:        mat.periodo,
                     sede:           mat.sede,
+                    facultad:       mat.facultad,
                     programa:       mat.programa,
                     semestre:       mat.semestre,
                     grupo:          g.grupo,
@@ -659,6 +664,7 @@ async function docenteCommentsAnalysis(query) {
                     codigo_materia: mat.codigo_materia,
                     periodo:        mat.periodo,
                     sede:           mat.sede,
+                    facultad:       mat.facultad,
                     programa:       mat.programa,
                     semestre:       mat.semestre,
                     grupo:          null,
@@ -677,6 +683,7 @@ async function docenteCommentsAnalysis(query) {
             codigo_materia: mat.codigo_materia,
             periodo:        mat.periodo,
             sede:           mat.sede,
+            facultad:       mat.facultad,
             programa:       mat.programa,
             semestre:       mat.semestre,
             estado:         'analizado',

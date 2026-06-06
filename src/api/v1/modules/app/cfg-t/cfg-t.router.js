@@ -43,7 +43,5 @@ router.get('/:id/roles', ensureAuth, requireAuthorization(), controller.getRoles
 // GET /cfg/t/:id/evals -> evaluaciones/encuestas del usuario autenticado
 router.get('/:id/evals', ensureAuth, requireAuthorization(req => Number(req.params.id)), controller.getEvaluacionesByCfgTUser);
 
-// GET /cfg/t/:id/scope -> scope de la configuración (sede, periodo, programa, semestre, grupo con sus nombres)
-router.get('/:id/scope', ensureAuth, requireAuthorization(req => Number(req.params.id)), controller.getScopesByCfgT);
 
 module.exports = router;

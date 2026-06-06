@@ -2,7 +2,7 @@
  * @swagger
  * tags:
  *   name: Filter
- *   description: Endpoints para obtener valores de filtros desde base local y vista académica online
+ *   description: Filtros en cascada desde vista_academica_insitus (periodo → sede → facultad → programa → semestre → grupo)
  */
 
 /**
@@ -10,113 +10,8 @@
  * /filter:
  *   get:
  *     tags: [Filter]
- *     summary: Obtiene todos los filtros desde base local
- *     description: Retorna sedes, periodos, programas, semestres, grupos y roles desde tablas locales (sede, peri, prog, smstre, grp, rol_mix)
- *     responses:
- *       200:
- *         description: Filtros locales obtenidos correctamente
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Filtros locales obtenidos correctamente
- *                 data:
- *                   type: object
- *                   properties:
- *                     sedes:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           nombre:
- *                             type: string
- *                       example: [ { "id": 1, "nombre": "SEDE A" }, { "id": 2, "nombre": "SEDE B" } ]
- *                     periodos:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           nombre:
- *                             type: string
- *                       example: [ { "id": 1, "nombre": "2024-1" }, { "id": 2, "nombre": "2024-2" } ]
- *                     programas:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           nombre:
- *                             type: string
- *                       example: [ { "id": 1, "nombre": "Ingeniería de Sistemas" }, { "id": 2, "nombre": "Medicina" } ]
- *                     semestres:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           nombre:
- *                             type: string
- *                       example: [ { "id": 1, "nombre": "1" }, { "id": 2, "nombre": "2" } ]
- *                     grupos:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           nombre:
- *                             type: string
- *                       example: [ { "id": 1, "nombre": "A" }, { "id": 2, "nombre": "B" } ]
- *                     roles:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: integer
- *                           nombre:
- *                             type: string
- *                           origen:
- *                             type: string
- *                             enum: [APP, AUTH]
- *                           rol_origen_id:
- *                             type: integer
- *                             nullable: true
- *                       example: [ { "id": 1, "nombre": "Admin", "origen": "APP", "rol_origen_id": 1 }, { "id": 3, "nombre": "Estudiante", "origen": "AUTH", "rol_origen_id": 1 } ]
- *       500:
- *         description: Error interno del servidor
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: false
- *                 message:
- *                   type: string
- *                   example: Error al obtener filtros
- */
-
-/**
- * @swagger
- * /filter/online:
- *   get:
- *     tags: [Filter]
- *     summary: Obtiene todos los valores únicos para filtros desde vista académica
- *     description: Retorna sede, periodo, programa, semestre y grupo únicos desde vista_academica_insitus
+ *     summary: Todos los filtros sin restricción
+ *     description: Retorna todos los valores únicos de cada dimensión sin aplicar ningún filtro.
  *     responses:
  *       200:
  *         description: Filtros obtenidos correctamente
@@ -128,65 +23,33 @@
  *                 success:
  *                   type: boolean
  *                   example: true
- *                 message:
- *                   type: string
- *                   example: Filtros obtenidos correctamente
  *                 data:
  *                   type: object
  *                   properties:
- *                     sedes:
- *                       type: array
- *                       items:
- *                         type: string
- *                       example: [ "SEDE A", "SEDE B", "SEDE C" ]
  *                     periodos:
  *                       type: array
- *                       items:
- *                         type: string
- *                       example: [ "2024", "2023", "2022" ]
+ *                       items: { type: string }
+ *                       example: ["2024-2", "2024-1"]
+ *                     sedes:
+ *                       type: array
+ *                       items: { type: string }
+ *                       example: ["SEDE PRINCIPAL", "SEDE NORTE"]
+ *                     facultades:
+ *                       type: array
+ *                       items: { type: string }
+ *                       example: ["FACULTAD DE INGENIERÍA", "FACULTAD DE MEDICINA"]
  *                     programas:
  *                       type: array
- *                       items:
- *                         type: string
- *                       example: [ "Ingeniería de Sistemas", "Medicina", "Derecho" ]
+ *                       items: { type: string }
+ *                       example: ["INGENIERÍA DE SISTEMAS", "MEDICINA"]
  *                     semestres:
  *                       type: array
- *                       items:
- *                         type: string
- *                       example: [ "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" ]
+ *                       items: { type: string }
+ *                       example: ["PRIMER SEMESTRE", "SEGUNDO SEMESTRE"]
  *                     grupos:
  *                       type: array
- *                       items:
- *                         type: string
- *                       example: [ "A", "B", "C", "D" ]
- */
-
-/**
- * @swagger
- * /filter/sedes:
- *   get:
- *     tags: [Filter]
- *     summary: Obtiene valores únicos de sede
- *     description: Retorna todas las sedes únicas desde vista_academica_insitus
- *     responses:
- *       200:
- *         description: Sedes obtenidas correctamente
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Sedes obtenidas correctamente
- *                 data:
- *                   type: array
- *                   items:
- *                     type: string
- *                   example: [ "SEDE A", "SEDE B", "SEDE C" ]
+ *                       items: { type: string }
+ *                       example: ["A", "B", "C"]
  */
 
 /**
@@ -194,16 +57,8 @@
  * /filter/periodos:
  *   get:
  *     tags: [Filter]
- *     summary: Obtiene valores únicos de periodo
- *     description: Retorna todos los periodos únicos desde vista_academica_insitus (ordenados descendentemente). Se puede filtrar por sede.
- *     parameters:
- *       - in: query
- *         name: sede
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar periodos por sede
- *         example: SEDE A
+ *     summary: Paso 1 — Periodos disponibles
+ *     description: Sin dependencias. Retorna todos los periodos únicos ordenados descendentemente.
  *     responses:
  *       200:
  *         description: Periodos obtenidos correctamente
@@ -212,17 +67,67 @@
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Periodos obtenidos correctamente
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     type: string
- *                   example: [ "2024", "2023", "2022" ]
+ *                   items: { type: string }
+ *                   example: ["2024-2", "2024-1", "2023-2"]
+ */
+
+/**
+ * @swagger
+ * /filter/sedes:
+ *   get:
+ *     tags: [Filter]
+ *     summary: Paso 2 — Sedes filtradas por periodo
+ *     parameters:
+ *       - in: query
+ *         name: periodo
+ *         schema: { type: string }
+ *         description: "Ej: 2024-2"
+ *     responses:
+ *       200:
+ *         description: Sedes obtenidas correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: array
+ *                   items: { type: string }
+ *                   example: ["SEDE PRINCIPAL", "SEDE NORTE"]
+ */
+
+/**
+ * @swagger
+ * /filter/facultades:
+ *   get:
+ *     tags: [Filter]
+ *     summary: Paso 3 — Facultades filtradas por periodo y sede
+ *     parameters:
+ *       - in: query
+ *         name: periodo
+ *         schema: { type: string }
+ *         description: "Ej: 2024-2"
+ *       - in: query
+ *         name: sede
+ *         schema: { type: string }
+ *         description: "Ej: SEDE PRINCIPAL"
+ *     responses:
+ *       200:
+ *         description: Facultades obtenidas correctamente
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean, example: true }
+ *                 data:
+ *                   type: array
+ *                   items: { type: string }
+ *                   example: ["FACULTAD DE INGENIERÍA", "FACULTAD DE MEDICINA"]
  */
 
 /**
@@ -230,23 +135,18 @@
  * /filter/programas:
  *   get:
  *     tags: [Filter]
- *     summary: Obtiene valores únicos de programa
- *     description: Retorna todos los programas únicos desde vista_academica_insitus. Se puede filtrar por sede y periodo.
+ *     summary: Paso 4 — Programas filtrados por periodo, sede y facultad
  *     parameters:
  *       - in: query
- *         name: sede
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar programas por sede
- *         example: SEDE A
- *       - in: query
  *         name: periodo
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar programas por periodo
- *         example: "2024"
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sede
+ *         schema: { type: string }
+ *       - in: query
+ *         name: facultad
+ *         schema: { type: string }
+ *         description: "Ej: FACULTAD DE INGENIERÍA"
  *     responses:
  *       200:
  *         description: Programas obtenidos correctamente
@@ -255,17 +155,11 @@
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Programas obtenidos correctamente
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     type: string
- *                   example: [ "Ingeniería de Sistemas", "Medicina", "Derecho" ]
+ *                   items: { type: string }
+ *                   example: ["INGENIERÍA DE SISTEMAS", "INGENIERÍA CIVIL"]
  */
 
 /**
@@ -273,30 +167,21 @@
  * /filter/semestres:
  *   get:
  *     tags: [Filter]
- *     summary: Obtiene valores únicos de semestre
- *     description: Retorna todos los semestres únicos desde vista_academica_insitus. Se puede filtrar por sede, periodo y programa.
+ *     summary: Paso 5 — Semestres filtrados por periodo, sede, facultad y programa
  *     parameters:
  *       - in: query
- *         name: sede
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar semestres por sede
- *         example: SEDE A
- *       - in: query
  *         name: periodo
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar semestres por periodo
- *         example: "2024"
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sede
+ *         schema: { type: string }
+ *       - in: query
+ *         name: facultad
+ *         schema: { type: string }
  *       - in: query
  *         name: programa
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar semestres por programa
- *         example: Ingeniería de Sistemas
+ *         schema: { type: string }
+ *         description: "Ej: INGENIERÍA DE SISTEMAS"
  *     responses:
  *       200:
  *         description: Semestres obtenidos correctamente
@@ -305,17 +190,11 @@
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Semestres obtenidos correctamente
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     type: string
- *                   example: [ "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" ]
+ *                   items: { type: string }
+ *                   example: ["PRIMER SEMESTRE", "SEGUNDO SEMESTRE", "TERCER SEMESTRE"]
  */
 
 /**
@@ -323,37 +202,24 @@
  * /filter/grupos:
  *   get:
  *     tags: [Filter]
- *     summary: Obtiene valores únicos de grupo
- *     description: Retorna todos los grupos únicos desde vista_academica_insitus. Se puede filtrar por sede, periodo, programa y semestre.
+ *     summary: Paso 6 — Grupos filtrados por periodo, sede, facultad, programa y semestre
  *     parameters:
  *       - in: query
- *         name: sede
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar grupos por sede
- *         example: SEDE A
- *       - in: query
  *         name: periodo
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar grupos por periodo
- *         example: "2024"
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sede
+ *         schema: { type: string }
+ *       - in: query
+ *         name: facultad
+ *         schema: { type: string }
  *       - in: query
  *         name: programa
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar grupos por programa
- *         example: Ingeniería de Sistemas
+ *         schema: { type: string }
  *       - in: query
  *         name: semestre
- *         schema:
- *           type: string
- *         required: false
- *         description: Filtrar grupos por semestre
- *         example: "1"
+ *         schema: { type: string }
+ *         description: "Ej: PRIMER SEMESTRE"
  *     responses:
  *       200:
  *         description: Grupos obtenidos correctamente
@@ -362,15 +228,9 @@
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: Grupos obtenidos correctamente
+ *                 success: { type: boolean, example: true }
  *                 data:
  *                   type: array
- *                   items:
- *                     type: string
- *                   example: [ "A", "B", "C", "D" ]
+ *                   items: { type: string }
+ *                   example: ["A", "B", "C"]
  */

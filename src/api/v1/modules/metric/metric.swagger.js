@@ -32,17 +32,23 @@
  *           default: cached
  *         description: Modo de IA para el reporte. `none` genera el informe sin conclusiones IA, `cached` usa análisis previamente guardado en cmt_ai.
  *       - in: query
+ *         name: periodo
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Filtrar por período
+ *       - in: query
  *         name: sede
  *         required: false
  *         schema:
  *           type: string
  *         description: Filtrar por sede
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         required: false
  *         schema:
  *           type: string
- *         description: Filtrar por período
+ *         description: Filtrar por facultad
  *       - in: query
  *         name: programa
  *         required: false
@@ -109,17 +115,23 @@
  *           type: string
  *         description: Código de la materia (opcional). Filtra a esa materia.
  *       - in: query
+ *         name: periodo
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Filtrar por período
+ *       - in: query
  *         name: sede
  *         required: false
  *         schema:
  *           type: string
  *         description: Filtrar por sede
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         required: false
  *         schema:
  *           type: string
- *         description: Filtrar por período
+ *         description: Filtrar por facultad
  *       - in: query
  *         name: programa
  *         required: false
@@ -253,11 +265,15 @@
  *         schema:
  *           type: string
  *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: sede
  *         schema:
  *           type: string
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         schema:
  *           type: string
  *       - in: query
@@ -332,11 +348,15 @@
  *           type: string
  *         description: Código de la materia (opcional). Si se proporciona, filtra solo esa materia.
  *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: sede
  *         schema:
  *           type: string
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         schema:
  *           type: string
  *       - in: query
@@ -403,11 +423,15 @@
  *         schema:
  *           type: integer
  *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: sede
  *         schema:
  *           type: string
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         schema:
  *           type: string
  *       - in: query
@@ -484,11 +508,15 @@
  *           type: integer
  *         description: Configuration ID (e.g., 1)
  *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: sede
  *         schema:
  *           type: string
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         schema:
  *           type: string
  *       - in: query
@@ -683,11 +711,15 @@
  *         schema:
  *           type: integer
  *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *       - in: query
  *         name: sede
  *         schema:
  *           type: string
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         schema:
  *           type: string
  *       - in: query
@@ -866,15 +898,20 @@
  *         description: Orden de clasificación (ascendente o descendente). Solo aplica cuando no se especifica docente.
  *         example: "desc"
  *       - in: query
+ *         name: periodo
+ *         schema:
+ *           type: string
+ *         description: Filtrar por período
+ *       - in: query
  *         name: sede
  *         schema:
  *           type: string
  *         description: Filtrar por sede
  *       - in: query
- *         name: periodo
+ *         name: facultad
  *         schema:
  *           type: string
- *         description: Filtrar por período
+ *         description: Filtrar por facultad
  *       - in: query
  *         name: programa
  *         schema:

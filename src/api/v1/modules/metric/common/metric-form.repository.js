@@ -1,13 +1,14 @@
 const { localPrisma, authPrisma, userPrisma } = require('../../../../../prisma/clients');
 
 // Build dynamic filters for the remote academic view
-function buildVistaWhere({ sede, periodo, programa, semestre, grupo }) {
+function buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo }) {
 	const where = {};
-	if (sede) where.NOMBRE_SEDE = sede;
-	if (periodo) where.PERIODO = periodo;
+	if (periodo)  where.PERIODO      = periodo;
+	if (sede)     where.NOMBRE_SEDE  = sede;
+	if (facultad) where.NOM_FACULTAD = facultad;
 	if (programa) where.NOM_PROGRAMA = programa;
-	if (semestre) where.SEMESTRE = semestre;
-	if (grupo) where.GRUPO = grupo;
+	if (semestre) where.SEMESTRE     = semestre;
+	if (grupo)    where.GRUPO        = grupo;
 
 	// Excluir docente sin asignar
 	where.NOT = { DOCENTE: 'DOCENTE SIN ASIGNAR' };
@@ -197,6 +198,7 @@ function createMetricFormRepository({ tipoFormId, allowMateria = false }) {
 		const whereVista = buildVistaWhere({
 			sede: query?.sede,
 			periodo: query?.periodo,
+			facultad: query?.facultad,
 			programa: query?.programa,
 			semestre: query?.semestre,
 			grupo: query?.grupo
@@ -610,6 +612,7 @@ function createMetricFormRepository({ tipoFormId, allowMateria = false }) {
 			...buildVistaWhere({
 				sede: query?.sede,
 				periodo: query?.periodo,
+				facultad: query?.facultad,
 				programa: query?.programa,
 				semestre: query?.semestre,
 				grupo: query?.grupo

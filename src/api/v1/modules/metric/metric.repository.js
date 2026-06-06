@@ -1,13 +1,14 @@
 const { localPrisma, userPrisma } = require('../../../../prisma/clients');
 
 // Build dynamic filters for the remote academic view
-function buildVistaWhere({ sede, periodo, programa, semestre, grupo }) {
+function buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo }) {
 	const where = {};
-	if (sede) where.NOMBRE_SEDE = sede;
-	if (periodo) where.PERIODO = periodo;
+	if (periodo)  where.PERIODO      = periodo;
+	if (sede)     where.NOMBRE_SEDE  = sede;
+	if (facultad) where.NOM_FACULTAD = facultad;
 	if (programa) where.NOM_PROGRAMA = programa;
-	if (semestre) where.SEMESTRE = semestre;
-	if (grupo) where.GRUPO = grupo;
+	if (semestre) where.SEMESTRE     = semestre;
+	if (grupo)    where.GRUPO        = grupo;
 	// Excluir docente sin asignar
 	where.NOT = { DOCENTE: 'DOCENTE SIN ASIGNAR' };
 	return where;
@@ -160,11 +161,11 @@ async function computeEvaluationMetricsFromVista(vista, cfgId) {
 	};
 }
 
-async function getEvaluationSummary({ cfg_t, sede, periodo, programa, semestre, grupo }) {
+async function getEvaluationSummary({ cfg_t, sede, periodo, facultad, programa, semestre, grupo }) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 
-	const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 
 	// Universe from remote view (each row is a course-registration to be evaluated)
 	const vista = await userPrisma.vista_academica_insitus.findMany({
@@ -301,11 +302,11 @@ async function getEvaluationSummary({ cfg_t, sede, periodo, programa, semestre, 
 	};
 }
 
-async function getEvaluationSummaryByProgram({ cfg_t, sede, periodo, programa, semestre, grupo }) {
+async function getEvaluationSummaryByProgram({ cfg_t, sede, periodo, facultad, programa, semestre, grupo }) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 
-	const whereVista = buildVistaWhere({ sede, periodo, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, semestre, grupo });
 
 	const vista = await userPrisma.vista_academica_insitus.findMany({
 		where: whereVista,
@@ -366,11 +367,11 @@ async function getEvaluationSummaryByProgram({ cfg_t, sede, periodo, programa, s
 	return { programas };
 }
 
-async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, grupo, page = 1, limit = 10 }, search = {}, sort = {}) {
+async function getAllDocentesStats({ cfg_t, sede, periodo, facultad, programa, semestre, grupo, page = 1, limit = 10 }, search = {}, sort = {}) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 
-	const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 
 	// ============================================================
 	// STEP 1: Get UNIQUE docentes from vista with DISTINCT
@@ -424,6 +425,7 @@ async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, g
 			docente: docente.ID_DOCENTE,
 			sede,
 			periodo,
+			facultad,
 			programa,
 			semestre,
 			grupo
@@ -450,6 +452,7 @@ async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, g
 			docente: docente.ID_DOCENTE,
 			sede,
 			periodo,
+			facultad,
 			programa,
 			semestre,
 			grupo
@@ -467,14 +470,14 @@ async function getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, g
 	};
 }
 
-async function getDocenteStats({ cfg_t, docente, sede, periodo, programa, semestre, grupo, page = 1, limit = 10 }) {
+async function getDocenteStats({ cfg_t, docente, sede, periodo, facultad, programa, semestre, grupo, page = 1, limit = 10 }) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 	if (!docente) {
 		return getAllDocentesStats({ cfg_t, sede, periodo, programa, semestre, grupo, page, limit });
 	}
 
-	const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 	whereVista.ID_DOCENTE = docente;
 
 	const vista = await userPrisma.vista_academica_insitus.findMany({
@@ -623,10 +626,10 @@ async function getDocenteStats({ cfg_t, docente, sede, periodo, programa, semest
 	};
 }
 
-async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
+async function getRanking({ cfg_t, sede, periodo, facultad, programa, semestre, grupo }) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
-	const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 
 	const vista = await userPrisma.vista_academica_insitus.findMany({
 		where: whereVista,
@@ -787,7 +790,7 @@ async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
 		const scoreRank = adjusted * factorParticipacion * factorConfianza;
 
 		// Get all stats from getDocenteStats
-		const docenteStats = await getDocenteStats({ cfg_t, docente: d.docente, sede, periodo, programa, semestre, grupo });
+		const docenteStats = await getDocenteStats({ cfg_t, docente: d.docente, sede, periodo, facultad, programa, semestre, grupo });
 		
 		// Get eval metrics from getDocenteAspectMetrics for this docente
 		const aspectMetrics = await getDocenteAspectMetrics({ cfg_t, docente: d.docente });
@@ -854,7 +857,7 @@ async function getRanking({ cfg_t, sede, periodo, programa, semestre, grupo }) {
 
 	const zeroResults = await Promise.all(docentesSinRespuestas.map(async (d) => {
 		// Get all stats from getDocenteStats
-		const docenteStats = await getDocenteStats({ cfg_t, docente: d.docente, sede, periodo, programa, semestre, grupo });
+		const docenteStats = await getDocenteStats({ cfg_t, docente: d.docente, sede, periodo, facultad, programa, semestre, grupo });
 		
 		// Get eval metrics from getDocenteAspectMetrics for docentes sin respuestas
 		const aspectMetrics = await getDocenteAspectMetrics({ cfg_t, docente: d.docente });
@@ -1202,7 +1205,7 @@ function roundDecimals(obj) {
 	return obj;
 }
 
-async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, periodo, programa, semestre, grupo }) {
+async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, periodo, facultad, programa, semestre, grupo }) {
 		// ...existing code...
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
@@ -1221,7 +1224,7 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 
 	let scopeByDocente = new Map();
 	if (hasVistaFilters) {
-		const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+		const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 		if (docente) {
 			whereVista.ID_DOCENTE = String(docente);
 		}
@@ -1764,13 +1767,13 @@ async function getDocenteAspectMetrics({ cfg_t, docente, codigo_materia, sede, p
 	       return roundDecimals(result);
 }
 
-async function getDocenteMateriaMetrics({ cfg_t, docente, codigo_materia, sede, periodo, programa, semestre, grupo }) {
+async function getDocenteMateriaMetrics({ cfg_t, docente, codigo_materia, sede, periodo, facultad, programa, semestre, grupo }) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 	if (!docente) throw new Error('docente is required');
 
 	// Build filtered universe of courses (per docente)
-	const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 	whereVista.ID_DOCENTE = docente;
 	if (codigo_materia) {
 		// COD_ASIGNATURA is INT, convert string to number
@@ -1978,13 +1981,13 @@ async function getDocenteMateriaMetrics({ cfg_t, docente, codigo_materia, sede, 
 	return { docente, nombre_docente: nombreDocente, materias };
 }
 
-async function getDocenteMateriaCompletion({ cfg_t, docente, codigo_materia, sede, periodo, programa, semestre, grupo }) {
+async function getDocenteMateriaCompletion({ cfg_t, docente, codigo_materia, sede, periodo, facultad, programa, semestre, grupo }) {
 	const cfgId = Number(cfg_t);
 	if (!cfgId) throw new Error('cfg_t is required');
 	if (!docente) throw new Error('docente is required');
 	if (!codigo_materia) throw new Error('codigo_materia is required');
 
-	const whereVista = buildVistaWhere({ sede, periodo, programa, semestre, grupo });
+	const whereVista = buildVistaWhere({ sede, periodo, facultad, programa, semestre, grupo });
 	whereVista.ID_DOCENTE = docente;
 	const codigoMatNum = Number(codigo_materia);
 	if (!isNaN(codigoMatNum)) {
@@ -2142,7 +2145,7 @@ async function getDocenteMateriaAspectMetrics({ cfg_t, docente, codigo_materia }
 
 // Metrics + comments for a docente; optional by materia
 // Filters (sede, periodo, programa, semestre, grupo) accepted for consistency
-async function getDocenteCommentsWithMetrics({ cfg_t, docente, codigo_materia, sede, periodo, programa, semestre, grupo }) {
+async function getDocenteCommentsWithMetrics({ cfg_t, docente, codigo_materia, sede, periodo, facultad, programa, semestre, grupo }) {
 	const parseJsonSafe = (text, fallback = []) => {
 		if (text == null) return fallback;
 		if (typeof text === 'object') return text;
@@ -2158,7 +2161,7 @@ async function getDocenteCommentsWithMetrics({ cfg_t, docente, codigo_materia, s
 	// Retrieve broader docente stats so we can return richer info when no evals are found
 	let docenteStats = null;
 	try {
-		docenteStats = await getDocenteStats({ cfg_t, docente, sede, periodo, programa, semestre, grupo });
+		docenteStats = await getDocenteStats({ cfg_t, docente, sede, periodo, facultad, programa, semestre, grupo });
 	} catch (err) {
 		docenteStats = null;
 	}

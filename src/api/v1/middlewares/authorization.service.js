@@ -58,6 +58,7 @@ async function getUserAcademicScopeContext(user) {
     return {
       sede: normalizeText(data.sede),
       periodo: normalizeText(data.periodo),
+      facultad: normalizeText(data.facultad),
       programas,
       semestres,
       grupos,
@@ -71,11 +72,12 @@ function matchesScopeWithUserContext(scope, userContext) {
   if (!userContext) return true;
 
   return (
-    matchesScalarScope(scope?.sede?.nombre, userContext.sede)
-    && matchesScalarScope(scope?.peri?.nombre, userContext.periodo)
-    && matchesSetScope(scope?.prog?.nombre, userContext.programas)
-    && matchesSetScope(scope?.smstre?.nombre, userContext.semestres)
-    && matchesSetScope(scope?.grp?.nombre, userContext.grupos)
+    matchesScalarScope(scope?.sede, userContext.sede)
+    && matchesScalarScope(scope?.periodo, userContext.periodo)
+    && matchesScalarScope(scope?.facultad, userContext.facultad)
+    && matchesSetScope(scope?.programa, userContext.programas)
+    && matchesSetScope(scope?.semestre, userContext.semestres)
+    && matchesSetScope(scope?.grupo, userContext.grupos)
   );
 }
 
@@ -157,33 +159,12 @@ async function getUserScopesForConfig(user, cfgTId) {
 
     if (!hasMatchingRole) return [];
 
-    const scopes = await prisma.cfg_t_scope.findMany({
-      where: { cfg_t_id: Number(cfgTId) },
-      select: {
-        id: true,
-        cfg_t_id: true,
-        sede_id: true,
-        periodo_id: true,
-        programa_id: true,
-        semestre_id: true,
-        grupo_id: true,
-        sede: {
-          select: { id: true, nombre: true },
-        },
-        peri: {
-          select: { id: true, nombre: true },
-        },
-        prog: {
-          select: { id: true, nombre: true },
-        },
-        smstre: {
-          select: { id: true, nombre: true },
-        },
-        grp: {
-          select: { id: true, nombre: true },
-        },
-      },
+    const cfgTData = await prisma.cfg_t.findUnique({
+      where: { id: Number(cfgTId) },
+      select: { id: true, periodo: true, sede: true, facultad: true, programa: true, semestre: true, grupo: true },
     });
+
+    if (!cfgTData) return [];
 
     const userContext = await getUserAcademicScopeContext(user);
 
@@ -191,12 +172,18 @@ async function getUserScopesForConfig(user, cfgTId) {
       .map(item => item.rol_mix)
       .filter(Boolean);
 
-    return scopes
-      .filter(scope => matchesScopeWithUserContext(scope, userContext))
-      .map(scope => ({
-        ...scope,
-        roles_requeridos: matchedRoles,
-      }));
+    if (!matchesScopeWithUserContext(cfgTData, userContext)) return [];
+
+    return [{
+      cfg_t_id: cfgTData.id,
+      periodo: cfgTData.periodo,
+      sede: cfgTData.sede ?? null,
+      facultad: cfgTData.facultad ?? null,
+      programa: cfgTData.programa ?? null,
+      semestre: cfgTData.semestre ?? null,
+      grupo: cfgTData.grupo ?? null,
+      roles_requeridos: matchedRoles,
+    }];
   } catch (error) {
     throw new AppError('Error al obtener scopes del usuario', 500, error);
   }

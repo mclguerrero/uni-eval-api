@@ -46,6 +46,7 @@
  *           example: 1006948527
  *     LoginResponse:
  *       type: object
+ *       description: El refresh token se envía como cookie HttpOnly (refresh_token). No se expone en el body.
  *       properties:
  *         success:
  *           type: boolean
@@ -55,30 +56,25 @@
  *           properties:
  *             accessToken:
  *               type: string
+ *               description: JWT de corta duración. Guardar en memoria, no en localStorage.
  *               example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
- *             refreshToken:
- *               type: string
- *               example: 2f1c0c7c-...
- *             jti:
- *               type: string
- *               example: 9e4c4b67-...
- *             refreshExpiresAt:
+ *             accessTokenExpiresAt:
  *               type: string
  *               format: date-time
+ *               example: 2026-06-06T21:00:00.000Z
  *             user:
  *               $ref: '#/components/schemas/DataloginUser'
  *     RefreshInput:
  *       type: object
- *       required: [user_id, refresh_token]
+ *       description: El refresh token se lee desde la cookie HttpOnly. user_id requerido en el body.
+ *       required: [user_id]
  *       properties:
  *         user_id:
  *           type: integer
  *           example: 123
- *         refresh_token:
- *           type: string
- *           example: 2f1c0c7c-...
  *     RefreshResponse:
  *       type: object
+ *       description: El nuevo refresh token se envía como cookie HttpOnly. No se expone en el body.
  *       properties:
  *         success:
  *           type: boolean
@@ -88,11 +84,8 @@
  *           properties:
  *             accessToken:
  *               type: string
- *             refreshToken:
- *               type: string
- *             jti:
- *               type: string
- *             refreshExpiresAt:
+ *               description: Nuevo JWT de corta duración.
+ *             accessTokenExpiresAt:
  *               type: string
  *               format: date-time
  */

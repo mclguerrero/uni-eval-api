@@ -3,67 +3,46 @@ class FilterService {
     this.repository = repository;
   }
 
-  /**
-   * Obtiene todos los valores únicos para los filtros sin aplicar filtros
-   */
   async getAllFilters() {
     const data = await this.repository.getAllFilters();
-    
-    // Formatear los resultados para que sean arrays de strings simples
     return {
-      sedes: data.sedes.map(item => item.NOMBRE_SEDE),
-      periodos: data.periodos.map(item => item.PERIODO),
-      programas: data.programas.map(item => item.NOM_PROGRAMA),
-      semestres: data.semestres.map(item => item.SEMESTRE),
-      grupos: data.grupos.map(item => item.GRUPO),
+      periodos:   data.periodos.map(r => r.PERIODO),
+      sedes:      data.sedes.map(r => r.NOMBRE_SEDE),
+      facultades: data.facultades.map(r => r.NOM_FACULTAD),
+      programas:  data.programas.map(r => r.NOM_PROGRAMA),
+      semestres:  data.semestres.map(r => r.SEMESTRE),
+      grupos:     data.grupos.map(r => r.GRUPO),
     };
   }
 
-  /**
-   * Obtiene todos los filtros desde base local (tablas catálogo)
-   */
-  async getAllFiltersLocal() {
-    return this.repository.getAllFiltersLocal();
+  async getPeriodos() {
+    const result = await this.repository.getUniquePeriodos();
+    return result.map(r => r.PERIODO);
   }
 
-  /**
-   * Obtiene valores únicos de sede
-   */
-  async getSedes() {
-    const result = await this.repository.getUniqueSedes();
-    return result.map(item => item.NOMBRE_SEDE);
+  async getSedes(filters = {}) {
+    const result = await this.repository.getUniqueSedes(filters);
+    return result.map(r => r.NOMBRE_SEDE);
   }
 
-  /**
-   * Obtiene valores únicos de periodo filtrados por sede (opcional)
-   */
-  async getPeriodos(filters = {}) {
-    const result = await this.repository.getUniquePeriodos(filters);
-    return result.map(item => item.PERIODO);
+  async getFacultades(filters = {}) {
+    const result = await this.repository.getUniqueFacultades(filters);
+    return result.map(r => r.NOM_FACULTAD);
   }
 
-  /**
-   * Obtiene valores únicos de programa filtrados por sede y periodo (opcionales)
-   */
   async getProgramas(filters = {}) {
     const result = await this.repository.getUniqueProgramas(filters);
-    return result.map(item => item.NOM_PROGRAMA);
+    return result.map(r => r.NOM_PROGRAMA);
   }
 
-  /**
-   * Obtiene valores únicos de semestre filtrados por sede, periodo y programa (opcionales)
-   */
   async getSemestres(filters = {}) {
     const result = await this.repository.getUniqueSemestres(filters);
-    return result.map(item => item.SEMESTRE);
+    return result.map(r => r.SEMESTRE);
   }
 
-  /**
-   * Obtiene valores únicos de grupo filtrados por sede, periodo, programa y semestre (opcionales)
-   */
   async getGrupos(filters = {}) {
     const result = await this.repository.getUniqueGrupos(filters);
-    return result.map(item => item.GRUPO);
+    return result.map(r => r.GRUPO);
   }
 }
 
