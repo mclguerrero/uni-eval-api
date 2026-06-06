@@ -51,6 +51,12 @@ router.use('/user/prog', userProgCustomRouter, user_prog.router);
 const bulkCfg = require('@common/bulk-cfg/bulk-cfg').router;
 router.use('/', bulkCfg);
 
+// IA: catálogos (ai_provider, ai_model) + gestión de keys de usuario
+const { aiProvider, aiModel } = require('./ai/ai-key/ai-key.crud');
+router.use('/ai', require('./ai/ai-key/ai-key.router'));
+router.use('/ai/provider', aiProvider.router);
+router.use('/ai/model',    aiModel.router);
+
 // Métricas
 router.use('/metric', require('./metric/metric.router'));
 

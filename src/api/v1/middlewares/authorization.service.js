@@ -72,8 +72,8 @@ function matchesScopeWithUserContext(scope, userContext) {
 
   return (
     matchesScalarScope(scope?.sede?.nombre, userContext.sede)
-    && matchesScalarScope(scope?.periodo?.nombre, userContext.periodo)
-    && matchesSetScope(scope?.programa?.nombre, userContext.programas)
+    && matchesScalarScope(scope?.peri?.nombre, userContext.periodo)
+    && matchesSetScope(scope?.prog?.nombre, userContext.programas)
     && matchesSetScope(scope?.smstre?.nombre, userContext.semestres)
     && matchesSetScope(scope?.grp?.nombre, userContext.grupos)
   );
@@ -170,10 +170,10 @@ async function getUserScopesForConfig(user, cfgTId) {
         sede: {
           select: { id: true, nombre: true },
         },
-        periodo: {
+        peri: {
           select: { id: true, nombre: true },
         },
-        programa: {
+        prog: {
           select: { id: true, nombre: true },
         },
         smstre: {

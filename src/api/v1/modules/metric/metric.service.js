@@ -1,18 +1,10 @@
 
 const { analyzeFromAggregated } = require('../ai/comment-analysis.service');
-const CfgTRepository = require('../app/cfg-t/cfg-t.repository');
-const path = require('path');
-const fs = require('fs');
-const PizZip = require('pizzip');
-const Docxtemplater = require('docxtemplater');
-const ImageModule = require('docxtemplater-image-module-free');
+const { resolveProviderForUser } = require('../ai/ai-key/ai-key.service');
+const { runQueue } = require('../ai/analysis.queue');
 const { ChartJSNodeCanvas } = require('chartjs-node-canvas');
 
-const aspectChartCanvas = new ChartJSNodeCanvas({
-    width: 1600,
-    height: 920,
-    backgroundColour: 'white'
-});
+// Canvas is created per-call with dynamic height — see buildAspectBarChartImage
 
 const ASPECT_CHART_ORDER = [
     'Evaluación justa',
@@ -22,29 +14,6 @@ const ASPECT_CHART_ORDER = [
 ];
 
 
-async function CfgId(cfgTId, search, sort) {
-    // Instanciar el repositorio y llamar el método
-    const repo = new CfgTRepository();
-    return repo.findCfgByIdWithPair(cfgTId, search, sort);
-}
-
-/**
- * Format a Date or date-like value to YYYY-MM-DD.
- * Falls back to empty string if invalid.
- */
-function formatDate(value) {
-    if (!value) return '';
-    try {
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return '';
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        return `${yyyy}-${mm}-${dd}`;
-    } catch {
-        return '';
-    }
-}
 /**
  * Format current date-time in America/Bogota timezone.
  * Returns string like YYYY-MM-DD HH:mm:ss (America/Bogota).
@@ -126,6 +95,20 @@ function buildAspectChartBars(aspectos = []) {
         .filter((item) => item.label && item.value != null);
 }
 
+// ─── Performance color scale ──────────────────────────────────────────────────
+// Maps a 1-5 score to a fill/border color pair.
+// Excellent → green, acceptable → yellow, poor → red.
+function barColor(value) {
+    if (value >= 4.5) return { bg: 'rgba(21,  128,  61, 0.88)', border: '#15803D' }; // deep green
+    if (value >= 4.0) return { bg: 'rgba(34,  197,  94, 0.85)', border: '#16A34A' }; // green
+    if (value >= 3.5) return { bg: 'rgba(134, 239, 172, 0.82)', border: '#4ADE80' }; // light green
+    if (value >= 3.0) return { bg: 'rgba(234, 179,   8, 0.85)', border: '#CA8A04' }; // amber
+    if (value >= 2.5) return { bg: 'rgba(249, 115,  22, 0.88)', border: '#EA580C' }; // orange
+    if (value >= 2.0) return { bg: 'rgba(239,  68,  68, 0.88)', border: '#DC2626' }; // red
+    return             { bg: 'rgba(185,  28,  28, 0.90)', border: '#991B1B' };       // deep red
+}
+
+// ─── Value label plugin ───────────────────────────────────────────────────────
 const aspectValueLabelsPlugin = {
     id: 'aspectValueLabels',
     afterDatasetsDraw(chart) {
@@ -134,166 +117,154 @@ const aspectValueLabelsPlugin = {
         if (!dataset) return;
 
         ctx.save();
-        ctx.fillStyle = '#111827';
-        ctx.font = 'bold 28px Arial';
-        ctx.textAlign = 'left';
+        ctx.font = 'bold 38px Arial';
         ctx.textBaseline = 'middle';
 
         chart.getDatasetMeta(0).data.forEach((bar, index) => {
             const rawValue = dataset.data?.[index];
             if (rawValue == null) return;
 
-            const label = Number(rawValue).toFixed(2);
-            ctx.fillText(label, bar.x + 18, bar.y);
+            const numVal = Number(rawValue);
+            const label  = numVal.toFixed(2);
+            const color  = barColor(numVal);
+
+            // Value inside bar if wide enough, outside otherwise
+            const barWidth  = bar.x - chart.scales.x.getPixelForValue(0);
+            const textWidth = ctx.measureText(label).width;
+            if (barWidth > textWidth + 28) {
+                ctx.fillStyle   = '#FFFFFF';
+                ctx.textAlign   = 'right';
+                ctx.fillText(label, bar.x - 16, bar.y);
+            } else {
+                ctx.fillStyle   = color.border;
+                ctx.textAlign   = 'left';
+                ctx.fillText(label, bar.x + 14, bar.y);
+            }
         });
 
         ctx.restore();
     }
 };
 
-function dataURLToArrayBuffer(dataURL) {
-    const base64Regex = /^data:image\/(png|jpg|svg|svg\+xml);base64,/;
-    const stringBase64 = String(dataURL || '').replace(base64Regex, '');
-    let binaryString;
+// ─── Reference line plugin (score = 3.0) ──────────────────────────────────────
+const thresholdLinePlugin = {
+    id: 'thresholdLine',
+    afterDraw(chart) {
+        const { ctx, scales } = chart;
+        const xPx = scales.x?.getPixelForValue(3.0);
+        if (xPx == null) return;
 
-    if (typeof window !== 'undefined') {
-        binaryString = window.atob(stringBase64);
-    } else {
-        binaryString = Buffer.from(stringBase64, 'base64').toString('binary');
+        const top    = chart.chartArea.top;
+        const bottom = chart.chartArea.bottom;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(xPx, top);
+        ctx.lineTo(xPx, bottom);
+        ctx.strokeStyle = 'rgba(100, 100, 100, 0.40)';
+        ctx.lineWidth   = 2;
+        ctx.setLineDash([8, 6]);
+        ctx.stroke();
+
+        ctx.font        = 'normal 22px Arial';
+        ctx.fillStyle   = '#888888';
+        ctx.textAlign   = 'center';
+        ctx.fillText('Mín. 3.0', xPx, top - 10);
+        ctx.restore();
     }
+};
 
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i += 1) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-}
-
+// ─── Chart builder ────────────────────────────────────────────────────────────
 async function buildAspectBarChartImage(aspectos = []) {
     const bars = buildAspectChartBars(aspectos);
     if (!bars.length) return null;
 
+    const n = bars.length;
+    // Dynamic canvas: narrower width for a more square aspect ratio
+    const BAR_SLOT    = 150;  // px per bar — taller bars, more breathing room
+    const HEADER_H    = 180;  // title + subtitle
+    const FOOTER_H    =  90;  // x-axis ticks + padding
+    const canvasH     = HEADER_H + n * BAR_SLOT + FOOTER_H;
+    const canvasW     = 1200; // narrower → closer to square
+
+    const canvas = new ChartJSNodeCanvas({ width: canvasW, height: canvasH, backgroundColour: 'white' });
+
+    const colors  = bars.map(b => barColor(b.value));
+    const bgList  = colors.map(c => c.bg);
+    const bdrList = colors.map(c => c.border);
+
     const configuration = {
         type: 'bar',
-        plugins: [aspectValueLabelsPlugin],
+        plugins: [aspectValueLabelsPlugin, thresholdLinePlugin],
         data: {
-            labels: bars.map((item) => item.label),
+            labels: bars.map(b => b.label),
             datasets: [{
-                label: 'Promedio por aspecto',
-                data: bars.map((item) => item.value),
-                backgroundColor: [
-                    'rgba(15, 118, 110, 0.92)',
-                    'rgba(59, 130, 246, 0.92)',
-                    'rgba(249, 115, 22, 0.92)',
-                    'rgba(168, 85, 247, 0.92)'
-                ],
-                borderColor: [
-                    'rgba(15, 118, 110, 1)',
-                    'rgba(59, 130, 246, 1)',
-                    'rgba(249, 115, 22, 1)',
-                    'rgba(168, 85, 247, 1)'
-                ],
-                borderWidth: 1,
-                borderRadius: 16,
-                barThickness: 56,
-                maxBarThickness: 62,
-                hoverBackgroundColor: [
-                    'rgba(15, 118, 110, 1)',
-                    'rgba(59, 130, 246, 1)',
-                    'rgba(249, 115, 22, 1)',
-                    'rgba(168, 85, 247, 1)'
-                ]
+                label: 'Promedio',
+                data:             bars.map(b => b.value),
+                backgroundColor:  bgList,
+                borderColor:      bdrList,
+                borderWidth:      1.5,
+                borderRadius:     8,
+                borderSkipped:    false,
+                barThickness:     88,
+                maxBarThickness:  96,
             }]
         },
         options: {
-            responsive: false,
-            animation: false,
-            indexAxis: 'y',
+            responsive:          false,
+            animation:           false,
+            indexAxis:           'y',
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    display: false
-                },
+                legend: { display: false },
                 title: {
                     display: true,
-                    text: 'Resultados por aspecto',
-                    color: '#111827',
-                    font: {
-                        size: 36,
-                        weight: 'bold'
-                    },
-                    padding: {
-                        top: 8,
-                        bottom: 18
-                    }
+                    text:    'Resultados por aspecto evaluado',
+                    color:   '#1A1A1A',
+                    font:    { size: 38, weight: 'bold', family: 'Arial' },
+                    padding: { top: 22, bottom: 6 },
                 },
                 subtitle: {
                     display: true,
-                    text: 'Escala de 1 a 5. Valores mostrados al final de cada barra.',
-                    color: '#6B7280',
-                    font: {
-                        size: 20,
-                        weight: 'normal'
-                    },
-                    padding: {
-                        bottom: 16
-                    }
-                }
+                    text:    'Escala 1 – 5  ·  La línea punteada indica la nota mínima aprobatoria (3.0)',
+                    color:   '#888888',
+                    font:    { size: 26, weight: 'normal', family: 'Arial' },
+                    padding: { bottom: 22 },
+                },
             },
             scales: {
                 x: {
                     min: 0,
                     max: 5,
                     ticks: {
-                        stepSize: 1,
-                        color: '#374151',
-                        font: {
-                            size: 20,
-                            weight: 'bold'
-                        }
+                        stepSize:  1,
+                        color:     '#555555',
+                        font:      { size: 26, family: 'Arial' },
+                        callback:  v => v.toFixed(0),
                     },
                     grid: {
-                        color: 'rgba(148, 163, 184, 0.28)',
-                        lineWidth: 1
+                        color:     'rgba(200, 200, 200, 0.35)',
+                        lineWidth: 1,
                     },
-                    border: {
-                        color: '#CBD5E1'
-                    }
+                    border: { color: '#CCCCCC' },
                 },
                 y: {
                     ticks: {
-                        color: '#111827',
-                        font: {
-                            size: 26,
-                            weight: 'bold'
-                        }
+                        color:     '#1A1A1A',
+                        font:      { size: 32, weight: 'bold', family: 'Arial' },
+                        padding:   14,
                     },
-                    grid: {
-                        display: false
-                    },
-                    border: {
-                        display: false
-                    }
-                }
+                    grid:   { display: false },
+                    border: { display: false },
+                },
             },
             layout: {
-                padding: {
-                    top: 18,
-                    right: 110,
-                    bottom: 20,
-                    left: 22
-                }
+                padding: { top: 36, right: 140, bottom: 28, left: 16 },
             },
-            elements: {
-                bar: {
-                    borderSkipped: false
-                }
-            }
         }
     };
 
-    return aspectChartCanvas.renderToDataURL(configuration);
+    return canvas.renderToDataURL(configuration);
 }
 
 async function evaluationSummary(query) {
@@ -499,320 +470,350 @@ async function docenteComments(query) {
     return metricsData;
 }
 
-function parseJsonSafe(text, fallback = {}) {
-    if (text == null) return fallback;
-    if (typeof text === 'object') return text; // Already parsed JSON from Prisma
-    if (typeof text !== 'string') return fallback;
-    try { return JSON.parse(text); } catch {}
-    const match = text.match(/[\[{][\s\S]*[\]}]/);
-    if (match) {
-        try { return JSON.parse(match[0]); } catch {}
-    }
-    return fallback;
+
+
+/**
+ * Elimina registros previos de cmt_ai para la combinación exacta de docente+materia+contexto.
+ * Incluye los filtros opcionales de contexto (periodo, sede, programa, semestre)
+ * para no borrar análisis de otros contextos del mismo docente/materia.
+ */
+async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, periodo, sede, programa, semestre }) {
+    const where = {
+        cfg_t_id:       cfgId,
+        docente:        String(docente),
+        codigo_materia: String(codigo_materia),
+    };
+    if (periodo)  where.periodo  = periodo;
+    if (sede)     where.sede     = sede;
+    if (programa) where.programa = programa;
+    if (semestre) where.semestre = semestre;
+
+    await prisma.cmt_ai.deleteMany({ where });
 }
 
-function hasTextComments(data) {
-    const general = Array.isArray(data?.cmt_gen) ? data.cmt_gen : [];
-    const hasGeneral = general.some((c) => String(c || '').trim().length > 0);
-    if (hasGeneral) return true;
-
-    const aspectos = Array.isArray(data?.aspectos) ? data.aspectos : [];
-    return aspectos.some((asp) => {
-        const comments = Array.isArray(asp?.cmt) ? asp.cmt : [];
-        return comments.some((c) => String(c || '').trim().length > 0);
-    });
-}
-
-async function mapWithConcurrency(items, concurrency, mapper) {
-    if (!Array.isArray(items) || !items.length) return [];
-    const limit = Math.max(1, Number(concurrency) || 1);
-    const results = new Array(items.length);
-    let current = 0;
-
-    async function worker() {
-        while (true) {
-            const idx = current;
-            current += 1;
-            if (idx >= items.length) return;
-            results[idx] = await mapper(items[idx], idx);
-        }
-    }
-
-    const workers = Array.from({ length: Math.min(limit, items.length) }, () => worker());
-    await Promise.all(workers);
-    return results;
-}
-
-async function deleteCmtAiCompat(localPrisma, { cfgId, docente, codigo_materia }) {
-    try {
-        await localPrisma.cmt_ai.deleteMany({
-            where: {
-                cfg_t_id: cfgId,
-                docente: String(docente),
-                codigo_materia: String(codigo_materia)
-            }
-        });
-    } catch (err) {
-        if (String(err?.message || '').includes('Unknown argument `docente`')) {
-            await localPrisma.cmt_ai.deleteMany({
-                where: { cfg_t_id: cfgId }
-            });
-            return;
-        }
-        throw err;
-    }
-}
-
-async function createCmtAiCompat(localPrisma, records) {
+async function saveCmtAiRecords(localPrisma, records) {
     if (!records.length) return;
-    try {
-        await localPrisma.cmt_ai.createMany({ data: records });
-    } catch (err) {
-        if (String(err?.message || '').includes('Unknown argument `docente`')) {
-            const sanitized = records.map((r) => ({
-                cfg_t_id: r.cfg_t_id,
-                aspecto_id: r.aspecto_id,
-                conclusion: r.conclusion,
-                conclusion_gen: r.conclusion_gen,
-                fortaleza: r.fortaleza,
-                debilidad: r.debilidad
-            }));
-            await localPrisma.cmt_ai.createMany({ data: sanitized });
-            return;
-        }
-        throw err;
-    }
+    await localPrisma.cmt_ai.createMany({ data: records });
 }
 
+/**
+ * Ejecuta análisis de comentarios docentes con filtros arbitrarios.
+ *
+ * Filtros aceptados en `query`:
+ *   cfg_t          (requerido) — id de la configuración de tipo
+ *   user_id        (requerido para usar key propia del usuario)
+ *   periodo        (opcional)
+ *   sede           (opcional)
+ *   programa       (opcional)
+ *   semestre       (opcional)
+ *   grupo          (opcional) — restringe a un único grupo
+ *   docente        (opcional) — restringe a un único docente
+ *   codigo_materia (opcional) — restringe a una única materia
+ *
+ * Jerarquía de agrupación:
+ *   periodo → sede → programa → semestre → docente → materia → grupo
+ *
+ * Cada combinación (sede, programa, semestre, docente, materia) se analiza
+ * de forma independiente. Si tiene más de un grupo se genera un consolidado.
+ */
 async function docenteCommentsAnalysis(query) {
-	const { localPrisma } = require('../../../../prisma/clients');
-	const cfgId = Number(query.cfg_t);
-	
-	// 1. Obtener todas las materias del docente para esta configuración
-	const evalRecords = await localPrisma.eval.findMany({
-		where: {
-			id_configuracion: cfgId,
-			docente: String(query.docente)
-		},
-		select: { codigo_materia: true },
-		distinct: ['codigo_materia']
-	});
-	
-	const materias = evalRecords
-		.map(r => r.codigo_materia)
-		.filter(Boolean);
-	
-	// Si se especifica una materia, analizar solo esa
-	const materiasAAnalizar = query.codigo_materia ? [String(query.codigo_materia)] : materias;
-	
-	if (!materiasAAnalizar.length) {
-		return {
-			success: false,
-			message: 'No hay evaluaciones para analizar'
-		};
-	}
-	
-    // 2. Analizar materias con concurrencia controlada
-    const resultadosRaw = await mapWithConcurrency(materiasAAnalizar, 2, async (codigo_materia) => {
-        const dataMateria = await repo.getDocenteCommentsWithMetrics({
-            ...query,
-            codigo_materia
-        });
+    const { localPrisma } = require('../../../../prisma/clients');
+    const cfgId  = Number(query.cfg_t);
+    const userId = query.user_id ? Number(query.user_id) : null;
 
-        if (!dataMateria.total_respuestas) {
-            return {
-                codigo_materia,
-                estado: 'sin_respuestas'
-            };
+    if (!cfgId) throw Object.assign(new Error('cfg_t es requerido'), { status: 400 });
+
+    // 1. Resolver proveedor de IA del usuario (fallback: Ollama global)
+    const { provider, keyId } = await resolveProviderForUser(userId);
+
+    // 2. Construir filtro de consulta con todos los parámetros recibidos
+    const evalWhere = { id_configuracion: cfgId };
+    if (query.periodo)         evalWhere.periodo        = String(query.periodo);
+    if (query.sede)            evalWhere.sede            = String(query.sede);
+    if (query.programa)        evalWhere.programa        = String(query.programa);
+    if (query.semestre)        evalWhere.semestre        = String(query.semestre);
+    if (query.grupo)           evalWhere.grupo           = String(query.grupo);
+    if (query.docente)         evalWhere.docente         = String(query.docente);
+    if (query.codigo_materia)  evalWhere.codigo_materia  = String(query.codigo_materia);
+
+    // 3. Cargar todos los evals que cumplen los filtros
+    const evals = await localPrisma.eval.findMany({
+        where:  evalWhere,
+        select: {
+            id: true,
+            periodo: true, sede: true, programa: true, semestre: true,
+            grupo: true, docente: true, codigo_materia: true, cmt_gen: true,
+        },
+    });
+
+    if (!evals.length) {
+        return { success: false, message: 'No hay evaluaciones para los filtros dados' };
+    }
+
+    // 4. Cargar eval_det para todos los evals en una sola consulta
+    const evalIds = evals.map(e => e.id);
+    const detalles = await localPrisma.eval_det.findMany({
+        where:  { eval_id: { in: evalIds } },
+        select: { eval_id: true, cmt: true },
+    });
+
+    const cmtByEval = new Map();
+    for (const d of detalles) {
+        if ((d.cmt || '').trim()) {
+            if (!cmtByEval.has(d.eval_id)) cmtByEval.set(d.eval_id, []);
+            cmtByEval.get(d.eval_id).push(d.cmt.trim());
+        }
+    }
+
+    // 5. Agrupar por (periodo, sede, programa, semestre, docente, codigo_materia)
+    //    y dentro de cada grupo, recolectar comentarios por grupo académico
+    const materiaMap = new Map();
+    for (const ev of evals) {
+        const key = [
+            ev.periodo || '', ev.sede || '', ev.programa || '',
+            ev.semestre || '', ev.docente || '', ev.codigo_materia || '',
+        ].join('|');
+
+        if (!materiaMap.has(key)) {
+            materiaMap.set(key, {
+                periodo:        ev.periodo,
+                sede:           ev.sede,
+                programa:       ev.programa,
+                semestre:       ev.semestre,
+                docente:        ev.docente,
+                codigo_materia: ev.codigo_materia,
+                grupoMap:       new Map(),
+            });
         }
 
-        const hasComments = hasTextComments(dataMateria);
+        const mat = materiaMap.get(key);
+        const g   = ev.grupo || 'SIN_GRUPO';
+        if (!mat.grupoMap.has(g)) mat.grupoMap.set(g, []);
+        if ((ev.cmt_gen || '').trim()) mat.grupoMap.get(g).push(ev.cmt_gen.trim());
+        for (const cmt of (cmtByEval.get(ev.id) || [])) mat.grupoMap.get(g).push(cmt);
+    }
 
-        // 3. Limpiar registros previos para este docente, materia y cfg_t
-        await deleteCmtAiCompat(localPrisma, {
+    const materiasAAnalizar = Array.from(materiaMap.values());
+
+    // 6. Analizar cada combinación docente+materia con concurrencia controlada
+    const resultadosRaw = await runQueue(materiasAAnalizar, async (mat) => {
+        const grupos = Array.from(mat.grupoMap.entries())
+            .map(([grupo, comentarios]) => ({ grupo, comentarios }));
+
+        const tieneContenido = grupos.some(g => g.comentarios.length > 0);
+
+        // Eliminar análisis previos para esta combinación exacta
+        await deleteCmtAiForDocente(localPrisma, {
             cfgId,
-            docente: query.docente,
-            codigo_materia
+            docente:        mat.docente,
+            codigo_materia: mat.codigo_materia,
+            periodo:        mat.periodo,
+            sede:           mat.sede,
+            programa:       mat.programa,
+            semestre:       mat.semestre,
         });
 
-        if (!hasComments) {
+        if (!tieneContenido) {
             return {
-                codigo_materia,
-                estado: 'sin_comentarios'
+                docente: mat.docente, codigo_materia: mat.codigo_materia,
+                periodo: mat.periodo, sede: mat.sede,
+                programa: mat.programa, semestre: mat.semestre,
+                estado: 'sin_comentarios',
             };
         }
 
-        const analisisIA = await analyzeFromAggregated(dataMateria, query.docente);
+        // Ejecutar análisis IA (con chunking automático si es necesario)
+        const analisisIA = await analyzeFromAggregated(
+            { docente: mat.docente, codigo_materia: mat.codigo_materia, grupos },
+            provider
+        );
 
+        // Persistir resultados
         if (analisisIA.analisis) {
-            const cmtAiRecords = [];
-            for (const aspecto of analisisIA.analisis.aspectos || []) {
-                cmtAiRecords.push({
-                    cfg_t_id: cfgId,
-                    docente: String(query.docente),
-                    codigo_materia: String(codigo_materia),
-                    aspecto_id: aspecto.aspecto_id,
-                    conclusion: aspecto.conclusion || null,
-                    conclusion_gen: analisisIA.analisis.conclusion_general || null,
-                    fortaleza: analisisIA.analisis.fortalezas || [],
-                    debilidad: analisisIA.analisis.debilidades || []
+            const { grupos: gruposAnalysis, conclusion_general, fortalezas, debilidades } = analisisIA.analisis;
+            const records = [];
+
+            // Un registro por grupo analizado
+            for (const g of gruposAnalysis) {
+                records.push({
+                    cfg_t_id:       cfgId,
+                    docente:        mat.docente,
+                    codigo_materia: mat.codigo_materia,
+                    periodo:        mat.periodo,
+                    sede:           mat.sede,
+                    programa:       mat.programa,
+                    semestre:       mat.semestre,
+                    grupo:          g.grupo,
+                    user_ai_key_id: keyId,
+                    conclusion:     g.conclusion  || null,
+                    fortaleza:      g.fortalezas  || [],
+                    debilidad:      g.debilidades || [],
                 });
             }
 
-            await createCmtAiCompat(localPrisma, cmtAiRecords);
+            // Registro consolidado (solo cuando hay más de un grupo)
+            if (gruposAnalysis.length > 1) {
+                records.push({
+                    cfg_t_id:       cfgId,
+                    docente:        mat.docente,
+                    codigo_materia: mat.codigo_materia,
+                    periodo:        mat.periodo,
+                    sede:           mat.sede,
+                    programa:       mat.programa,
+                    semestre:       mat.semestre,
+                    grupo:          null,
+                    user_ai_key_id: keyId,
+                    conclusion:     conclusion_general || null,
+                    fortaleza:      fortalezas  || [],
+                    debilidad:      debilidades || [],
+                });
+            }
+
+            await saveCmtAiRecords(localPrisma, records);
         }
 
         return {
-            codigo_materia,
-            estado: 'analizado',
-            analisis: analisisIA
+            docente:        mat.docente,
+            codigo_materia: mat.codigo_materia,
+            periodo:        mat.periodo,
+            sede:           mat.sede,
+            programa:       mat.programa,
+            semestre:       mat.semestre,
+            estado:         'analizado',
         };
-    });
+    }, { concurrency: 2 });
 
-    const resultados = resultadosRaw.filter(Boolean);
-	
-	// 4. Retornar el análisis generado
-	return {
-		success: true,
-		docente: query.docente,
-		materias_analizadas: materiasAAnalizar,
-		resultados
-	};
+    return {
+        success:            true,
+        proveedor:          provider.getName(),
+        materias_analizadas: materiasAAnalizar.length,
+        resultados:         resultadosRaw.filter(Boolean),
+    };
 }
 
 async function generateDocxReport({
     cfg_t,
     docente,
     codigo_materia,
-    ai_mode,
     sede,
     periodo,
     programa,
     semestre,
-    grupo
+    grupo,
 }) {
-    if (!cfg_t || !docente) throw new Error('cfg_t y docente son requeridos');
+    if (!cfg_t) throw new Error('cfg_t es requerido');
 
-    const { localPrisma } = require('../../../../prisma/clients');
+    const { localPrisma, userPrisma } = require('../../../../prisma/clients');
+    const { buildEvaluationReport } = require('./docx-report.builder');
+
     const cfgId = Number(cfg_t);
 
-    // ================================
-    // 1. Obtener datos para Word
-    // - docenteAspectMetrics: fuente oficial de métricas por aspecto (lo pintado en Word)
-    // - docenteComments: comentarios + conclusiones IA/cache
-    // ================================
+    // 1. Obtener lista de docentes a incluir en el reporte
+    const evalWhere = { id_configuracion: cfgId };
+    if (docente)        evalWhere.docente        = String(docente);
+    if (codigo_materia) evalWhere.codigo_materia = String(codigo_materia);
+    if (periodo)        evalWhere.periodo        = String(periodo);
+    if (sede)           evalWhere.sede           = String(sede);
+    if (programa)       evalWhere.programa       = String(programa);
+    if (semestre)       evalWhere.semestre       = String(semestre);
+    if (grupo)          evalWhere.grupo          = String(grupo);
 
-    // Obtener la data de los endpoints ya procesada
-    // Obtener los datos listos desde los endpoints
-    const aspectosEndpoint = await docenteAspectMetrics({
-        cfg_t,
-        docente,
-        codigo_materia,
-        sede,
-        periodo,
-        programa,
-        semestre,
-        grupo
-    });
-    const materiasEndpoint = await docenteMateriaMetrics({
-        cfg_t,
-        docente,
-        codigo_materia,
-        sede,
-        periodo,
-        programa,
-        semestre,
-        grupo
+    const evalsDistinct = await localPrisma.eval.findMany({
+        where:  evalWhere,
+        select: { docente: true },
+        distinct: ['docente'],
     });
 
-    const evalEndpoint = await CfgId(cfgId);
-    const chartAspectos = Array.isArray(aspectosEndpoint?.evaluacion_estudiantes?.aspectos)
-        ? aspectosEndpoint.evaluacion_estudiantes.aspectos
-        : [];
-    const chartImage = await buildAspectBarChartImage(chartAspectos);
-    const materiasList = (materiasEndpoint?.materias || []).map((materia) => ({
-        ...materia,
-        promedio: resolvePromedioForDocx(materia),
-        grupos: Array.isArray(materia?.grupos)
-            ? materia.grupos.map((grupoItem) => ({
-                ...grupoItem,
-                promedio: resolvePromedioForDocx(grupoItem)
-            }))
-            : materia?.grupos
+    if (!evalsDistinct.length) throw new Error('No hay evaluaciones para los filtros dados');
+
+    const docenteIds = evalsDistinct.map(e => e.docente).filter(Boolean);
+
+    // 2. Resolver nombres de docentes desde userPrisma
+    let nombresMap = new Map();
+    try {
+        const registros = await userPrisma.vista_academica_insitus.findMany({
+            where: {
+                ID_DOCENTE: { in: docenteIds },
+                NOT: { DOCENTE: 'DOCENTE SIN ASIGNAR' },
+            },
+            select: { ID_DOCENTE: true, DOCENTE: true },
+            distinct: ['ID_DOCENTE'],
+        });
+        for (const r of registros) nombresMap.set(r.ID_DOCENTE, r.DOCENTE);
+    } catch { /* userPrisma puede no estar disponible en todos los entornos */ }
+
+    // 3. Para cada docente, recopilar: aspectos, materias, cmt_ai, chart
+    const filterBase = { cfg_t, codigo_materia, sede, periodo, programa, semestre, grupo };
+
+    const docentesData = await Promise.all(docenteIds.map(async (doc_id) => {
+        const q = { ...filterBase, docente: doc_id };
+
+        const [aspectos, materiasRaw, cmtAiRecords] = await Promise.all([
+            docenteAspectMetrics(q),
+            docenteMateriaMetrics(q),
+            localPrisma.cmt_ai.findMany({
+                where: {
+                    cfg_t_id:       cfgId,
+                    docente:        String(doc_id),
+                    ...(codigo_materia && { codigo_materia: String(codigo_materia) }),
+                    ...(periodo  && { periodo:  String(periodo)  }),
+                    ...(sede     && { sede:     String(sede)     }),
+                    ...(programa && { programa: String(programa) }),
+                    ...(semestre && { semestre: String(semestre) }),
+                    ...(grupo    && { grupo:    String(grupo)    }),
+                },
+                select: {
+                    codigo_materia: true,
+                    grupo:          true,
+                    conclusion:     true,
+                    fortaleza:      true,
+                    debilidad:      true,
+                },
+            }),
+        ]);
+
+        // Indexar cmt_ai por "codigo_materia|grupo" para acceso O(1)
+        const cmtAiMap = new Map();
+        for (const r of cmtAiRecords) {
+            cmtAiMap.set(`${r.codigo_materia}|${r.grupo ?? 'null'}`, r);
+        }
+
+        const chartAspectos = Array.isArray(aspectos?.evaluacion_estudiantes?.aspectos)
+            ? aspectos.evaluacion_estudiantes.aspectos
+            : [];
+        const chartBars  = buildAspectChartBars(chartAspectos);
+        const chartImage = await buildAspectBarChartImage(chartAspectos);
+
+        const materias = (materiasRaw?.materias ?? []).map((m) => ({
+            ...m,
+            promedio: resolvePromedioForDocx(m),
+            grupos: Array.isArray(m.grupos)
+                ? m.grupos.map(g => ({ ...g, promedio: resolvePromedioForDocx(g) }))
+                : m.grupos,
+        }));
+
+        return {
+            docente:           doc_id,
+            nombre_docente:    nombresMap.get(doc_id) ?? null,
+            nota_final:        aspectos?.resultado_final?.nota_final_ponderada ?? null,
+            aspectos,
+            materias,
+            cmtAiMap,
+            chartImage,
+            chartBarCount:     chartBars.length,
+        };
     }));
 
-    // DEBUG: Mostrar fuentes crudas que alimentan el mapeo del template
-    console.log('[DOCX REPORT SOURCES]', JSON.stringify({
-        aspectosEndpoint,
-        materiasEndpoint,
-        evalEndpoint
-    }, null, 2));
-
-    console.log('[DOCX REPORT CHART]', JSON.stringify({
-        hasChart: Boolean(chartImage),
-        bars: buildAspectChartBars(chartAspectos)
-    }, null, 2));
-
-    // Preparar la data para el template (sin cálculos, solo mapeo directo)
-    const data = {
-    // ---- CAMPOS PLANOS (para evitar problemas) ----
-    aspectos_docente: aspectosEndpoint?.docente,
-    aspectos_escala_maxima: aspectosEndpoint?.escala_maxima,
-    aspectos_promedio_general: aspectosEndpoint?.evaluacion_estudiantes?.promedio_general,
-    aspectos_total_respuestas: aspectosEndpoint?.evaluacion_estudiantes?.total_respuestas,
-    aspectos_total_cmt: aspectosEndpoint?.evaluacion_estudiantes?.total_cmt,
-    aspectos_nota_final: aspectosEndpoint?.resultado_final?.nota_final_ponderada,
-
-    materias_docente: materiasEndpoint?.docente,
-    materias_nombre_docente: materiasEndpoint?.nombre_docente,
-
-    informe_fecha: formatDate(Date.now()),
-    informe_fecha_hora: formatDateTimeBogota(Date.now()),
-    has_chart: Boolean(chartImage),
-    chart_image: chartImage,
-
-    // ---- DEJAS ESTO TAL CUAL PARA LOOPS ----
-    aspectos_list: aspectosEndpoint?.evaluacion_estudiantes?.aspectos || [],
-    materias_list: materiasList,
-    eval_list: evalEndpoint || [],
-    };
-
-    // DEBUG: Mostrar la data final que se pasa al template
-    console.log('[DOCX REPORT DATA]', JSON.stringify(data, null, 2));
-
-    // Cargar la plantilla DOCX
-    const templatePath = path.resolve(__dirname, '../../templates/Carta_UniPutumayo.docx');
-    const content = fs.readFileSync(templatePath, 'binary');
-    const zip = new PizZip(content);
-    const imageModule = new ImageModule({
-        centered: true,
-        getImage(tagValue) {
-            return dataURLToArrayBuffer(tagValue);
-        },
-        getSize() {
-            return [700, 400];
-        }
+    // 4. Construir y devolver el buffer DOCX
+    return buildEvaluationReport({
+        docentes:  docentesData,
+        periodo:   periodo  ?? null,
+        sede:      sede     ?? null,
+        programa:  programa ?? null,
+        semestre:  semestre ?? null,
+        grupo:     grupo    ?? null,
+        fecha_hora: formatDateTimeBogota(Date.now()),
     });
-
-    const doc = new Docxtemplater()
-        .attachModule(imageModule)
-        .loadZip(zip)
-        .setOptions({
-            paragraphLoop: true,
-            linebreaks: true,
-            delimiters: { start: '[[', end: ']]' },
-        });
-
-    doc.setData(data);
-
-    try {
-        doc.render();
-    } catch (e) {
-        const explanation = e.properties?.explanation || e.message;
-        throw new Error(`Error en plantilla DOCX: ${explanation}`);
-    }
-
-    return doc.getZip().generate({ type: 'nodebuffer' });
 }
 
 module.exports = {
