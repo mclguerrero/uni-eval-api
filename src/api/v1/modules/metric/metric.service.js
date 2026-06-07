@@ -477,7 +477,7 @@ async function docenteComments(query) {
  * Incluye los filtros opcionales de contexto (periodo, sede, programa, semestre)
  * para no borrar análisis de otros contextos del mismo docente/materia.
  */
-async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, periodo, sede, programa, semestre }) {
+async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, periodo, sede, facultad, programa, semestre }) {
     const where = {
         cfg_t_id:       cfgId,
         docente:        String(docente),
@@ -485,6 +485,7 @@ async function deleteCmtAiForDocente(prisma, { cfgId, docente, codigo_materia, p
     };
     if (periodo)  where.periodo  = periodo;
     if (sede)     where.sede     = sede;
+    if (facultad) where.facultad = facultad;
     if (programa) where.programa = programa;
     if (semestre) where.semestre = semestre;
 
@@ -517,7 +518,7 @@ async function saveCmtAiRecords(localPrisma, records) {
  * de forma independiente. Si tiene más de un grupo se genera un consolidado.
  */
 async function docenteCommentsAnalysis(query) {
-    const { localPrisma } = require('../../../../prisma/clients');
+    const { localPrisma, userPrisma } = require('../../../../prisma/clients');
     const cfgId  = Number(query.cfg_t);
     const userId = query.user_id ? Number(query.user_id) : null;
 
@@ -526,22 +527,48 @@ async function docenteCommentsAnalysis(query) {
     // 1. Resolver proveedor de IA del usuario (fallback: Ollama global)
     const { provider, keyId } = await resolveProviderForUser(userId);
 
-    // 2. Construir filtro de consulta con todos los parámetros recibidos
+    // 2. Construir filtro de consulta con todos los parámetros recibidos.
+    //    Si hay filtros de cascada académica se valida primero contra vista_academica_insitus
+    //    para obtener el conjunto válido de docentes dentro de ese scope.
     const evalWhere = { id_configuracion: cfgId };
-    if (query.periodo)         evalWhere.periodo        = String(query.periodo);
-    if (query.sede)            evalWhere.sede            = String(query.sede);
-    if (query.programa)        evalWhere.programa        = String(query.programa);
-    if (query.semestre)        evalWhere.semestre        = String(query.semestre);
-    if (query.grupo)           evalWhere.grupo           = String(query.grupo);
-    if (query.docente)         evalWhere.docente         = String(query.docente);
-    if (query.codigo_materia)  evalWhere.codigo_materia  = String(query.codigo_materia);
+    if (query.codigo_materia) evalWhere.codigo_materia = String(query.codigo_materia);
+
+    const hasCascadeFilters = Boolean(query.periodo || query.sede || query.facultad || query.programa || query.semestre || query.grupo);
+
+    if (hasCascadeFilters) {
+        const whereVista = {};
+        if (query.periodo)  whereVista.PERIODO      = String(query.periodo);
+        if (query.sede)     whereVista.NOMBRE_SEDE  = String(query.sede);
+        if (query.facultad) whereVista.NOM_FACULTAD = String(query.facultad);
+        if (query.programa) whereVista.NOM_PROGRAMA = String(query.programa);
+        if (query.semestre) whereVista.SEMESTRE      = String(query.semestre);
+        if (query.grupo)    whereVista.GRUPO         = String(query.grupo);
+        whereVista.NOT = { DOCENTE: 'DOCENTE SIN ASIGNAR' };
+
+        if (query.docente) whereVista.ID_DOCENTE = String(query.docente);
+
+        const vistaRows = await userPrisma.vista_academica_insitus.findMany({
+            where: whereVista,
+            select: { ID_DOCENTE: true },
+            distinct: ['ID_DOCENTE'],
+        });
+
+        const docentesEnScope = vistaRows.map(r => r.ID_DOCENTE).filter(Boolean);
+        if (!docentesEnScope.length) {
+            return { success: false, message: 'No hay docentes en el scope académico indicado' };
+        }
+
+        evalWhere.docente = { in: docentesEnScope };
+    } else if (query.docente) {
+        evalWhere.docente = String(query.docente);
+    }
 
     // 3. Cargar todos los evals que cumplen los filtros
     const evals = await localPrisma.eval.findMany({
         where:  evalWhere,
         select: {
             id: true,
-            periodo: true, sede: true, programa: true, semestre: true,
+            periodo: true, sede: true, facultad: true, programa: true, semestre: true,
             grupo: true, docente: true, codigo_materia: true, cmt_gen: true,
         },
     });
@@ -570,7 +597,7 @@ async function docenteCommentsAnalysis(query) {
     const materiaMap = new Map();
     for (const ev of evals) {
         const key = [
-            ev.periodo || '', ev.sede || '', ev.programa || '',
+            ev.periodo || '', ev.sede || '', ev.facultad || '', ev.programa || '',
             ev.semestre || '', ev.docente || '', ev.codigo_materia || '',
         ].join('|');
 
@@ -578,6 +605,7 @@ async function docenteCommentsAnalysis(query) {
             materiaMap.set(key, {
                 periodo:        ev.periodo,
                 sede:           ev.sede,
+                facultad:       ev.facultad,
                 programa:       ev.programa,
                 semestre:       ev.semestre,
                 docente:        ev.docente,
@@ -595,99 +623,136 @@ async function docenteCommentsAnalysis(query) {
 
     const materiasAAnalizar = Array.from(materiaMap.values());
 
-    // 6. Analizar cada combinación docente+materia con concurrencia controlada
-    const resultadosRaw = await runQueue(materiasAAnalizar, async (mat) => {
-        const grupos = Array.from(mat.grupoMap.entries())
-            .map(([grupo, comentarios]) => ({ grupo, comentarios }));
+    // 6. Analizar cada combinación docente+materia con concurrencia controlada.
+    //    retries:0 porque el inner runQueue (analyzeFromAggregated) ya tiene sus propios reintentos.
+    //    timeoutMs generoso para que el inner queue pueda completar sus retries (3×120s por grupo).
+    let resultadosRaw;
+    try {
+    resultadosRaw = await runQueue(materiasAAnalizar, async (mat) => {
+        try {
+            const grupos = Array.from(mat.grupoMap.entries())
+                .map(([grupo, comentarios]) => ({ grupo, comentarios }));
 
-        const tieneContenido = grupos.some(g => g.comentarios.length > 0);
+            const tieneContenido = grupos.some(g => g.comentarios.length > 0);
 
-        // Eliminar análisis previos para esta combinación exacta
-        await deleteCmtAiForDocente(localPrisma, {
-            cfgId,
-            docente:        mat.docente,
-            codigo_materia: mat.codigo_materia,
-            periodo:        mat.periodo,
-            sede:           mat.sede,
-            programa:       mat.programa,
-            semestre:       mat.semestre,
-        });
+            // Eliminar análisis previos para esta combinación exacta
+            await deleteCmtAiForDocente(localPrisma, {
+                cfgId,
+                docente:        mat.docente,
+                codigo_materia: mat.codigo_materia,
+                periodo:        mat.periodo,
+                sede:           mat.sede,
+                facultad:       mat.facultad,
+                programa:       mat.programa,
+                semestre:       mat.semestre,
+            });
 
-        if (!tieneContenido) {
+            if (!tieneContenido) {
+                return {
+                    docente: mat.docente, codigo_materia: mat.codigo_materia,
+                    periodo: mat.periodo, sede: mat.sede, facultad: mat.facultad,
+                    programa: mat.programa, semestre: mat.semestre,
+                    estado: 'sin_comentarios',
+                };
+            }
+
+            // Ejecutar análisis IA (con chunking automático si es necesario)
+            const analisisIA = await analyzeFromAggregated(
+                { docente: mat.docente, codigo_materia: mat.codigo_materia, grupos },
+                provider
+            );
+
+            // Persistir resultados
+            if (analisisIA.analisis) {
+                const { grupos: gruposAnalysis, conclusion_general, fortalezas, debilidades } = analisisIA.analisis;
+                const records = [];
+
+                // Un registro por grupo analizado
+                for (const g of gruposAnalysis) {
+                    records.push({
+                        cfg_t_id:       cfgId,
+                        docente:        mat.docente,
+                        codigo_materia: mat.codigo_materia,
+                        periodo:        mat.periodo,
+                        sede:           mat.sede,
+                        facultad:       mat.facultad,
+                        programa:       mat.programa,
+                        semestre:       mat.semestre,
+                        grupo:          g.grupo,
+                        user_ai_key_id: keyId,
+                        conclusion:     g.conclusion  || null,
+                        fortaleza:      g.fortalezas  || [],
+                        debilidad:      g.debilidades || [],
+                    });
+                }
+
+                // Registro consolidado (solo cuando hay más de un grupo)
+                if (gruposAnalysis.length > 1) {
+                    records.push({
+                        cfg_t_id:       cfgId,
+                        docente:        mat.docente,
+                        codigo_materia: mat.codigo_materia,
+                        periodo:        mat.periodo,
+                        sede:           mat.sede,
+                        facultad:       mat.facultad,
+                        programa:       mat.programa,
+                        semestre:       mat.semestre,
+                        grupo:          null,
+                        user_ai_key_id: keyId,
+                        conclusion:     conclusion_general || null,
+                        fortaleza:      fortalezas  || [],
+                        debilidad:      debilidades || [],
+                    });
+                }
+
+                await saveCmtAiRecords(localPrisma, records);
+            }
+
             return {
-                docente: mat.docente, codigo_materia: mat.codigo_materia,
-                periodo: mat.periodo, sede: mat.sede,
-                programa: mat.programa, semestre: mat.semestre,
-                estado: 'sin_comentarios',
+                docente:        mat.docente,
+                codigo_materia: mat.codigo_materia,
+                periodo:        mat.periodo,
+                sede:           mat.sede,
+                facultad:       mat.facultad,
+                programa:       mat.programa,
+                semestre:       mat.semestre,
+                estado:         'analizado',
+                analisis:       analisisIA.analisis ?? null,
+            };
+        } catch (err) {
+            return {
+                docente:        mat.docente,
+                codigo_materia: mat.codigo_materia,
+                periodo:        mat.periodo,
+                sede:           mat.sede,
+                facultad:       mat.facultad,
+                programa:       mat.programa,
+                semestre:       mat.semestre,
+                estado:         'error',
+                error:          err.message,
             };
         }
-
-        // Ejecutar análisis IA (con chunking automático si es necesario)
-        const analisisIA = await analyzeFromAggregated(
-            { docente: mat.docente, codigo_materia: mat.codigo_materia, grupos },
-            provider
-        );
-
-        // Persistir resultados
-        if (analisisIA.analisis) {
-            const { grupos: gruposAnalysis, conclusion_general, fortalezas, debilidades } = analisisIA.analisis;
-            const records = [];
-
-            // Un registro por grupo analizado
-            for (const g of gruposAnalysis) {
-                records.push({
-                    cfg_t_id:       cfgId,
-                    docente:        mat.docente,
-                    codigo_materia: mat.codigo_materia,
-                    periodo:        mat.periodo,
-                    sede:           mat.sede,
-                    programa:       mat.programa,
-                    semestre:       mat.semestre,
-                    grupo:          g.grupo,
-                    user_ai_key_id: keyId,
-                    conclusion:     g.conclusion  || null,
-                    fortaleza:      g.fortalezas  || [],
-                    debilidad:      g.debilidades || [],
-                });
-            }
-
-            // Registro consolidado (solo cuando hay más de un grupo)
-            if (gruposAnalysis.length > 1) {
-                records.push({
-                    cfg_t_id:       cfgId,
-                    docente:        mat.docente,
-                    codigo_materia: mat.codigo_materia,
-                    periodo:        mat.periodo,
-                    sede:           mat.sede,
-                    programa:       mat.programa,
-                    semestre:       mat.semestre,
-                    grupo:          null,
-                    user_ai_key_id: keyId,
-                    conclusion:     conclusion_general || null,
-                    fortaleza:      fortalezas  || [],
-                    debilidad:      debilidades || [],
-                });
-            }
-
-            await saveCmtAiRecords(localPrisma, records);
-        }
-
+    }, { concurrency: 2, retries: 0, timeoutMs: 540_000 });
+    } catch (err) {
         return {
-            docente:        mat.docente,
-            codigo_materia: mat.codigo_materia,
-            periodo:        mat.periodo,
-            sede:           mat.sede,
-            programa:       mat.programa,
-            semestre:       mat.semestre,
-            estado:         'analizado',
+            success:             false,
+            message:             `Error durante el análisis: ${err.message}`,
+            proveedor:           provider.getName(),
+            materias_analizadas: materiasAAnalizar.length,
+            resultados:          [],
         };
-    }, { concurrency: 2 });
+    }
+
+    const resultados = resultadosRaw.filter(Boolean);
+    // Compatibilidad con el panel frontend: exponer el analisis del primer resultado exitoso
+    const primerAnalizado = resultados.find(r => r.estado === 'analizado' && r.analisis);
 
     return {
         success:            true,
         proveedor:          provider.getName(),
         materias_analizadas: materiasAAnalizar.length,
-        resultados:         resultadosRaw.filter(Boolean),
+        analisis:           primerAnalizado?.analisis ?? null,
+        resultados,
     };
 }
 

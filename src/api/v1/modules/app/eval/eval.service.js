@@ -24,6 +24,7 @@ class EvalService {
 			select: {
 				PERIODO: true,
 				NOMBRE_SEDE: true,
+				NOM_FACULTAD: true,
 				NOM_PROGRAMA: true,
 				SEMESTRE: true,
 				GRUPO: true
@@ -35,6 +36,7 @@ class EvalService {
 		const academicInfo = {
 			periodo: null,
 			sede: null,
+			facultad: null,
 			programa: null,
 			semestre: null,
 			grupo: null
@@ -43,6 +45,7 @@ class EvalService {
 		for (const row of rows) {
 			if (academicInfo.periodo == null && row.PERIODO != null) academicInfo.periodo = row.PERIODO;
 			if (academicInfo.sede == null && row.NOMBRE_SEDE != null) academicInfo.sede = row.NOMBRE_SEDE;
+			if (academicInfo.facultad == null && row.NOM_FACULTAD != null) academicInfo.facultad = row.NOM_FACULTAD;
 			if (academicInfo.programa == null && row.NOM_PROGRAMA != null) academicInfo.programa = row.NOM_PROGRAMA;
 			if (academicInfo.semestre == null && row.SEMESTRE != null) academicInfo.semestre = row.SEMESTRE;
 			if (academicInfo.grupo == null && row.GRUPO != null) academicInfo.grupo = row.GRUPO;
@@ -50,6 +53,7 @@ class EvalService {
 			if (
 				academicInfo.periodo != null &&
 				academicInfo.sede != null &&
+				academicInfo.facultad != null &&
 				academicInfo.programa != null &&
 				academicInfo.semestre != null &&
 				academicInfo.grupo != null
@@ -74,6 +78,7 @@ class EvalService {
 			...payload,
 			periodo: truncate(academicInfo.periodo, 10),
 			sede: truncate(academicInfo.sede, 20),
+			facultad: truncate(academicInfo.facultad, 100),
 			programa: truncate(academicInfo.programa, 100),
 			semestre: truncate(academicInfo.semestre, 20),
 			grupo: truncate(academicInfo.grupo, 10)
@@ -237,6 +242,7 @@ class EvalService {
 							codigo_materia: row.codigo_materia,
 							periodo: row.periodo,
 							sede: row.sede,
+							facultad: row.facultad,
 							programa: row.programa,
 							semestre: row.semestre,
 							grupo: row.grupo
@@ -273,6 +279,7 @@ class EvalService {
 					codigo_materia: row.codigo_materia,
 					periodo: row.periodo,
 					sede: row.sede,
+					facultad: row.facultad,
 					programa: row.programa,
 					semestre: row.semestre,
 					grupo: row.grupo
@@ -306,6 +313,7 @@ class EvalService {
 					codigo_materia: row.codigo_materia,
 					periodo: row.periodo,
 					sede: row.sede,
+					facultad: row.facultad,
 					programa: row.programa,
 					semestre: row.semestre,
 					grupo: row.grupo
@@ -354,6 +362,7 @@ class EvalService {
 							codigo_materia: row.codigo_materia,
 							periodo: row.periodo,
 							sede: row.sede,
+							facultad: row.facultad,
 							programa: row.programa,
 							semestre: row.semestre,
 							grupo: row.grupo,

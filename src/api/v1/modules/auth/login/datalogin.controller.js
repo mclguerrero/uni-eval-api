@@ -45,12 +45,27 @@ class DataloginController {
     }
   }; 
 
+  #setRefreshCookie(res, token, expiresAt) {
+    res.cookie('refresh_token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      expires: expiresAt,
+      path: '/api/v1/auth',
+    });
+  }
+
+  #clearRefreshCookie(res) {
+    res.clearCookie('refresh_token', { path: '/api/v1/auth' });
+  }
+
   // POST /auth/login
   login = async (req, res, next) => {
     try {
       const username = req.body.username || req.body.user_username;
       const password = req.body.password || req.body.user_password || req.body.user_passwword;
-      const result = await this.service.login(username, password);
+      const { refreshToken, jti, refreshExpiresAt, ...result } = await this.service.login(username, password);
+      this.#setRefreshCookie(res, refreshToken, refreshExpiresAt);
       return successResponse(res, {
         message: MESSAGES.AUTH.SUCCESS.LOGIN,
         data: result
@@ -63,9 +78,10 @@ class DataloginController {
   // POST /auth/refresh
   refresh = async (req, res, next) => {
     try {
-      const userId = Number(req.body.user_id || req.body.id);
-      const token = req.body.refresh_token || req.body.token;
-      const result = await this.service.refresh(userId, token);
+      const userId = Number(req.body.user_id || req.body.id || req.user?.id);
+      const token = req.cookies?.refresh_token || req.body.refresh_token;
+      const { refreshToken, jti, refreshExpiresAt, ...result } = await this.service.refresh(userId, token);
+      this.#setRefreshCookie(res, refreshToken, refreshExpiresAt);
       return successResponse(res, {
         message: 'Token renovado',
         data: result
@@ -80,6 +96,7 @@ class DataloginController {
     try {
       const userId = req.user?.id || Number(req.body.user_id || req.body.id);
       const result = await this.service.logout(userId);
+      this.#clearRefreshCookie(res);
       return successResponse(res, {
         message: result.message,
         data: { revoked: true }

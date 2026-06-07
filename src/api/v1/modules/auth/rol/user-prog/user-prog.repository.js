@@ -1,4 +1,4 @@
-const { localPrisma, authPrisma } = require('@config/prisma');
+const { prisma: localPrisma, authPrisma } = require('@config/prisma');
 
 class UserProgRepository {
 	constructor({ localClient = localPrisma, authClient = authPrisma } = {}) {
@@ -15,64 +15,53 @@ class UserProgRepository {
 			select: {
 				id: true,
 				user_rol_id: true,
-				prog_id: true,
+				periodo: true,
+				sede: true,
+				facultad: true,
+				programa: true,
+				semestre: true,
+				grupo: true,
 				fecha_creacion: true,
 				fecha_actualizacion: true,
-				prog: { select: { nombre: true } },
-				user_rol: { select: { user_id: true } }
-			}
+				user_rol: { select: { user_id: true } },
+			},
 		};
 
-		// Procesar orden (sort)
-		if (sort && sort.sortBy) {
-			findOptions.orderBy = {
-				[sort.sortBy]: sort.sortOrder === 'desc' ? 'desc' : 'asc'
-			};
+		if (sort?.sortBy) {
+			findOptions.orderBy = { [sort.sortBy]: sort.sortOrder === 'desc' ? 'desc' : 'asc' };
 		} else {
 			findOptions.orderBy = { id: 'asc' };
 		}
 
-		// Procesar búsqueda (search)
 		let userIdsFromDataLogin = null;
-		if (search && search.isActive && search.term && search.fields.length > 0) {
+		if (search?.isActive && search?.term && search.fields.length > 0) {
 			const whereConditions = [];
 			const dataloginFields = ['user_name', 'user_username', 'user_email'];
 			const hasDataloginSearch = search.fields.some(f => dataloginFields.includes(f));
 
-			// Buscar en campos de datalogin si aplica
 			if (hasDataloginSearch) {
-				const dataloginWhere = {
-					OR: search.fields
-						.filter(f => dataloginFields.includes(f))
-						.map(field => ({
-							[field]: { contains: search.term }
-						}))
-				};
 				const matchingDatalogins = await this.dataloginModel.findMany({
-					where: dataloginWhere,
-					select: { user_id: true }
+					where: {
+						OR: search.fields
+							.filter(f => dataloginFields.includes(f))
+							.map(field => ({ [field]: { contains: search.term } })),
+					},
+					select: { user_id: true },
 				});
 				userIdsFromDataLogin = matchingDatalogins.map(dl => dl.user_id);
 			}
 
-			// Buscar en prog_nombre
-			if (search.fields.includes('prog_nombre')) {
-				whereConditions.push({
-					prog: {
-						nombre: { contains: search.term }
-					}
-				});
+			// Buscar en campos de scope
+			const scopeFields = ['programa', 'sede', 'facultad', 'semestre', 'grupo', 'periodo'];
+			for (const field of scopeFields) {
+				if (search.fields.includes(field)) {
+					whereConditions.push({ [field]: { contains: search.term } });
+				}
 			}
 
-			// Agregar filtro por user_ids de datalogin
 			if (userIdsFromDataLogin && userIdsFromDataLogin.length > 0) {
-				whereConditions.push({
-					user_rol: {
-						user_id: { in: userIdsFromDataLogin }
-					}
-				});
+				whereConditions.push({ user_rol: { user_id: { in: userIdsFromDataLogin } } });
 			} else if (hasDataloginSearch && (!userIdsFromDataLogin || userIdsFromDataLogin.length === 0)) {
-				// Si buscó en datalogin pero no encontró nada, no retornar resultados
 				whereConditions.push({ id: -1 });
 			}
 
@@ -83,10 +72,9 @@ class UserProgRepository {
 
 		const [items, total] = await Promise.all([
 			this.model.findMany(findOptions),
-			this.model.count(findOptions.where ? { where: findOptions.where } : undefined)
+			this.model.count(findOptions.where ? { where: findOptions.where } : undefined),
 		]);
 
-		// Obtener datos de datalogin para cada user_id
 		const userIds = items.map(item => item.user_rol.user_id);
 		const dataLogins = userIds.length > 0
 			? await this.dataloginModel.findMany({
@@ -98,21 +86,19 @@ class UserProgRepository {
 						user_email: true,
 						user_idrole: true,
 						user_statusid: true,
-						role_name: true
-					}
+						role_name: true,
+					},
 				})
 			: [];
 
-		// Crear mapa de datalogin por user_id
 		const dataLoginMap = dataLogins.reduce((acc, dl) => {
 			acc[dl.user_id] = dl;
 			return acc;
 		}, {});
 
-		// Enriquecer items con datos de datalogin
 		const enrichedItems = items.map(item => ({
 			...item,
-			datalogin: dataLoginMap[item.user_rol.user_id] || null
+			datalogin: dataLoginMap[item.user_rol.user_id] || null,
 		}));
 
 		return { items: enrichedItems, total };

@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "baseUrl": ".", // Establece la raíz del proyecto
+    "baseUrl": ".",
+    "ignoreDeprecations": "6.0",
     "paths": {
       "@db": ["src/db"],
       "@common/*": ["src/common/*"],

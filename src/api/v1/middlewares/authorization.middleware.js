@@ -13,7 +13,7 @@ function hasGlobalRole(user) {
 }
 
 /**
- * Middleware de autorización basado en cfg_t + cfg_t_scope + cfg_t_rol.
+ * Middleware de autorización basado en cfg_t + cfg_t_rol.
  * Debe usarse DESPUÉS de ensureAuth.
  *
  * @param {number|((req: import('express').Request)=>number|null)|null} cfgSelector

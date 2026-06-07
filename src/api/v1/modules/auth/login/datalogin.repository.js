@@ -45,32 +45,45 @@ class DataloginRepository {
     return roles;
   }
 
-  // Get programs for a user through user_rol -> user_prog -> prog
+  // Get programs for a user through user_rol -> user_prog
   async findProgramsByUserId(user_id) {
     const userRoles = await localPrisma.user_rol.findMany({
       where: { user_id },
       include: {
         user_prog: {
-          include: {
-            prog: true
+          select: {
+            id: true,
+            periodo: true,
+            sede: true,
+            facultad: true,
+            programa: true,
+            semestre: true,
+            grupo: true,
           }
         }
       }
     });
 
-    const seenProgs = new Map();
+    const seen = new Map();
 
     for (const userRole of userRoles) {
       if (!userRole.user_prog) continue;
-      for (const userProg of userRole.user_prog) {
-        const prog = userProg?.prog;
-        if (!prog?.id || !prog?.nombre) continue;
-        if (seenProgs.has(prog.id)) continue;
-        seenProgs.set(prog.id, { id: prog.id, nombre: prog.nombre });
+      for (const up of userRole.user_prog) {
+        if (!up?.id) continue;
+        if (seen.has(up.id)) continue;
+        seen.set(up.id, {
+          id: up.id,
+          periodo: up.periodo,
+          sede: up.sede ?? null,
+          facultad: up.facultad ?? null,
+          programa: up.programa ?? null,
+          semestre: up.semestre ?? null,
+          grupo: up.grupo ?? null,
+        });
       }
     }
 
-    return Array.from(seenProgs.values());
+    return Array.from(seen.values());
   }
 
   // ---- Refresh token helpers ----

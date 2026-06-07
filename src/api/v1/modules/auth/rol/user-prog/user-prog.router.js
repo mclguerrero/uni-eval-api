@@ -13,6 +13,6 @@ const controller = new UserProgController(service);
 
 const router = Router();
 
-router.get('/u', ensureAuth, requireGlobalRole, pagination({ maxLimit: 100 }), sort({}), search({ searchFields: ['prog_nombre', 'user_name', 'user_username', 'user_email'] }), controller.getUserProgWithDataLogin);
+router.get('/u', ensureAuth, requireGlobalRole, pagination({ maxLimit: 100 }), sort({}), search({ searchFields: ['programa', 'facultad', 'sede', 'semestre', 'grupo', 'periodo', 'user_name', 'user_username', 'user_email'] }), controller.getUserProgWithDataLogin);
 
 module.exports = router;

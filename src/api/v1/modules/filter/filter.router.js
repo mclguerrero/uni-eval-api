@@ -9,12 +9,12 @@ const controller = new FilterController(service);
 
 const router = Router();
 
-router.get('/', controller.getAllFiltersLocal);
-router.get('/online', controller.getAllFilters);
-router.get('/sedes', controller.getSedes);
-router.get('/periodos', controller.getPeriodos);
-router.get('/programas', controller.getProgramas);
-router.get('/semestres', controller.getSemestres);
-router.get('/grupos', controller.getGrupos);
+router.get('/',           controller.getAllFilters);
+router.get('/periodos',   controller.getPeriodos);
+router.get('/sedes',      controller.getSedes);
+router.get('/facultades', controller.getFacultades);
+router.get('/programas',  controller.getProgramas);
+router.get('/semestres',  controller.getSemestres);
+router.get('/grupos',     controller.getGrupos);
 
 module.exports = router;

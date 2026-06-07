@@ -1,5 +1,4 @@
 const { successResponse } = require('@utils/responseHandler');
-const MESSAGES = require('@constants/messages');
 
 class FilterController {
   constructor(service) {
@@ -9,34 +8,7 @@ class FilterController {
   getAllFilters = async (req, res, next) => {
     try {
       const data = await this.service.getAllFilters();
-      return successResponse(res, { 
-        message: 'Filtros obtenidos correctamente', 
-        data 
-      });
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  getAllFiltersLocal = async (req, res, next) => {
-    try {
-      const data = await this.service.getAllFiltersLocal();
-      return successResponse(res, {
-        message: 'Filtros locales obtenidos correctamente',
-        data
-      });
-    } catch (err) {
-      next(err);
-    }
-  };
-
-  getSedes = async (req, res, next) => {
-    try {
-      const data = await this.service.getSedes();
-      return successResponse(res, { 
-        message: 'Sedes obtenidas correctamente', 
-        data 
-      });
+      return successResponse(res, { message: 'Filtros obtenidos correctamente', data });
     } catch (err) {
       next(err);
     }
@@ -44,14 +16,29 @@ class FilterController {
 
   getPeriodos = async (req, res, next) => {
     try {
-      const filters = {
-        sede: req.query.sede
-      };
-      const data = await this.service.getPeriodos(filters);
-      return successResponse(res, { 
-        message: 'Periodos obtenidos correctamente', 
-        data 
+      const data = await this.service.getPeriodos();
+      return successResponse(res, { message: 'Periodos obtenidos correctamente', data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getSedes = async (req, res, next) => {
+    try {
+      const data = await this.service.getSedes({ periodo: req.query.periodo });
+      return successResponse(res, { message: 'Sedes obtenidas correctamente', data });
+    } catch (err) {
+      next(err);
+    }
+  };
+
+  getFacultades = async (req, res, next) => {
+    try {
+      const data = await this.service.getFacultades({
+        periodo: req.query.periodo,
+        sede: req.query.sede,
       });
+      return successResponse(res, { message: 'Facultades obtenidas correctamente', data });
     } catch (err) {
       next(err);
     }
@@ -59,15 +46,12 @@ class FilterController {
 
   getProgramas = async (req, res, next) => {
     try {
-      const filters = {
+      const data = await this.service.getProgramas({
+        periodo: req.query.periodo,
         sede: req.query.sede,
-        periodo: req.query.periodo
-      };
-      const data = await this.service.getProgramas(filters);
-      return successResponse(res, { 
-        message: 'Programas obtenidos correctamente', 
-        data 
+        facultad: req.query.facultad,
       });
+      return successResponse(res, { message: 'Programas obtenidos correctamente', data });
     } catch (err) {
       next(err);
     }
@@ -75,16 +59,13 @@ class FilterController {
 
   getSemestres = async (req, res, next) => {
     try {
-      const filters = {
-        sede: req.query.sede,
+      const data = await this.service.getSemestres({
         periodo: req.query.periodo,
-        programa: req.query.programa
-      };
-      const data = await this.service.getSemestres(filters);
-      return successResponse(res, { 
-        message: 'Semestres obtenidos correctamente', 
-        data 
+        sede: req.query.sede,
+        facultad: req.query.facultad,
+        programa: req.query.programa,
       });
+      return successResponse(res, { message: 'Semestres obtenidos correctamente', data });
     } catch (err) {
       next(err);
     }
@@ -92,17 +73,14 @@ class FilterController {
 
   getGrupos = async (req, res, next) => {
     try {
-      const filters = {
-        sede: req.query.sede,
+      const data = await this.service.getGrupos({
         periodo: req.query.periodo,
+        sede: req.query.sede,
+        facultad: req.query.facultad,
         programa: req.query.programa,
-        semestre: req.query.semestre
-      };
-      const data = await this.service.getGrupos(filters);
-      return successResponse(res, { 
-        message: 'Grupos obtenidos correctamente', 
-        data 
+        semestre: req.query.semestre,
       });
+      return successResponse(res, { message: 'Grupos obtenidos correctamente', data });
     } catch (err) {
       next(err);
     }

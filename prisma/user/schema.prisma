@@ -7,3 +7,36 @@ datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL_USER")
 }
+
+/// Remote academic view (read-only).
+/// Synthetic composite id to satisfy Prisma unique criteria.
+model vista_academica_insitus {
+  ID_ESTUDIANTE      String   @db.VarChar(20)
+  PRIMER_APELLIDO    String?  @db.VarChar(50)
+  SEGUNDO_APELLIDO   String?  @db.VarChar(50)
+  PRIMER_NOMBRE      String?  @db.VarChar(50)
+  SEGUNDO_NOMBRE     String?  @db.VarChar(50)
+  ID_PERIODO         Int      @db.Int
+  PERIODO            String?  @db.VarChar(50)
+  NOMBRE_SEDE        String?  @db.VarChar(12)
+  SEMESTRE           String?  @db.VarChar(100)
+  ABREVIATURA_CURSO  String?  @db.VarChar(10)
+  GRUPO              String   @db.VarChar(50)
+  ID_DOCENTE         String?  @db.VarChar(20)
+  DOCENTE            String?  @db.VarChar(203)
+  NOM_PROGRAMA       String?  @db.VarChar(250)
+  ASIGNATURA         String?  @db.VarChar(100)
+  COD_ASIGNATURA     Int      @db.Int
+  COD_INGRESONOTAS   String?  @db.Char(1)
+  NOTA_FINAL         Decimal? @db.Decimal(10, 1)
+  COD_ESTADOMATERIA  Int?     @db.Int
+  COD_FORMAACADEMICA Int?     @db.Int
+  ABREV_PROGRAMA     String?  @db.VarChar(6)
+  NOM_DECANO         String?  @db.VarChar(5)
+  NOM_FACULTAD       String?  @db.VarChar(37)
+
+  @@id([ID_ESTUDIANTE, COD_ASIGNATURA, ID_PERIODO, GRUPO])
+  @@map("vista_academica_insitus")
+}
+
+// IMPORTANT: Do not run migrations on this schema. Read-only usage.

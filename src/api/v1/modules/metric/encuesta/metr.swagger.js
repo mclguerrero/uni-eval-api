@@ -23,6 +23,11 @@
  *           type: string
  *         description: Filtro dinámico por periodo
  *       - in: query
+ *         name: facultad
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por facultad
+ *       - in: query
  *         name: programa
  *         schema:
  *           type: string
@@ -95,6 +100,11 @@
  *         schema:
  *           type: string
  *         description: Filtro dinámico por periodo
+ *       - in: query
+ *         name: facultad
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por facultad
  *       - in: query
  *         name: programa
  *         schema:
@@ -188,6 +198,11 @@
  *         schema:
  *           type: string
  *         description: Filtro dinámico por periodo
+ *       - in: query
+ *         name: facultad
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por facultad
  *       - in: query
  *         name: programa
  *         schema:
@@ -302,6 +317,11 @@
  *         schema:
  *           type: string
  *         description: Filtro dinámico por periodo
+ *       - in: query
+ *         name: facultad
+ *         schema:
+ *           type: string
+ *         description: Filtro dinámico por facultad
  *       - in: query
  *         name: programa
  *         schema:
