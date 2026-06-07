@@ -6,18 +6,25 @@ class OpenAIProvider extends BaseAIProvider {
     if (!config.api_key) throw new Error('OpenAI requiere api_key');
     this.apiKey = config.api_key;
     this.model = config.model_id || 'gpt-4o-mini';
-    this.baseUrl = (config.base_url || 'https://api.openai.com/v1').replace(/\/$/, '');
+    this.isOpenRouter = String(config.provider_name || '').toLowerCase().includes('openrouter');
+    const defaultUrl = this.isOpenRouter ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1';
+    this.baseUrl = (config.base_url || defaultUrl).replace(/\/$/, '');
   }
 
-  getName() { return 'openai'; }
+  getName() { return this.isOpenRouter ? 'openrouter' : 'openai'; }
 
   async _post(path, body) {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${this.apiKey}`,
+    };
+    if (this.isOpenRouter) {
+      headers['HTTP-Referer'] = process.env.APP_URL || 'http://localhost:5000';
+      headers['X-Title'] = process.env.APP_NAME || 'UniEval';
+    }
     const res = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${this.apiKey}`,
-      },
+      headers,
       body: JSON.stringify(body),
     });
     if (!res.ok) {
